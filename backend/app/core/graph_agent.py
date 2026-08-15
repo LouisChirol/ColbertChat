@@ -43,6 +43,8 @@ class GraphState(BaseModel):
     # Input
     message: str
     session_id: str
+    detected_language: str = "fr"
+    retrieval_message: str = ""
 
     # History and context
     history: Any = None
@@ -56,7 +58,7 @@ class GraphState(BaseModel):
     search_query: str = ""
     documents: List[DocumentRetrieved] = Field(default_factory=list)
     context: str = ""
-    sources: List[str] = Field(default_factory=list)
+    sources: List[dict] = Field(default_factory=list)
 
     # Token management
     trimmed_history: List[Any] = Field(default_factory=list)
@@ -108,6 +110,7 @@ class TurgotGraphAgent:
 
         # Add all nodes
         workflow.add_node("load_history", self._load_history)
+        workflow.add_node("detect_language", self._detect_language)
         workflow.add_node("classify_query", self._classify_query)
         workflow.add_node(
             "generate_non_administrative_response",
@@ -123,7 +126,8 @@ class TurgotGraphAgent:
 
         # Define the flow
         workflow.set_entry_point("load_history")
-        workflow.add_edge("load_history", "classify_query")
+        workflow.add_edge("load_history", "detect_language")
+        workflow.add_edge("detect_language", "classify_query")
 
         # Conditional routing after classification
         workflow.add_conditional_edges(
@@ -171,7 +175,6 @@ class TurgotGraphAgent:
                     "error": None,
                 }
             )
-
         except Exception as e:
             logger.error(f"Error loading history: {str(e)}")
             return state.model_copy(
@@ -179,6 +182,42 @@ class TurgotGraphAgent:
                     "history": None,
                     "history_messages": [],
                     "error": f"Failed to load history: {str(e)}",
+                }
+            )
+
+    def _detect_language(self, state: GraphState) -> GraphState:
+        """Detect input language and prepare retrieval query language."""
+        try:
+            prompt = (
+                "Détecte la langue dominante du message utilisateur. "
+                "Réponds uniquement avec un code ISO 639-1 en minuscule "
+                "(fr, en, es, it, de, pt, etc.)."
+            )
+            result = self.classifier_llm.invoke(
+                [SystemMessage(content=prompt), HumanMessage(content=state.message)]
+            )
+            language = (result.content or "fr").strip().lower()[:2]
+            if not language.isalpha():
+                language = "fr"
+
+            retrieval_message = state.message
+            if language != "fr":
+                retrieval_message = self._translate_to_french(state.message, language)
+
+            return state.model_copy(
+                update={
+                    "detected_language": language,
+                    "retrieval_message": retrieval_message,
+                    "error": None,
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Language detection failed, defaulting to French: {e}")
+            return state.model_copy(
+                update={
+                    "detected_language": "fr",
+                    "retrieval_message": state.message,
+                    "error": None,
                 }
             )
 
@@ -205,7 +244,9 @@ class TurgotGraphAgent:
             # SECOND: If administrative, check if RAG is needed
             messages = [
                 SystemMessage(content=RAG_CLASSIFICATION_PROMPT),
-                HumanMessage(content=f"Question: {state.message}"),
+                HumanMessage(
+                    content=f"Question: {state.retrieval_message or state.message}"
+                ),
             ]
 
             # Add recent history context if available (last 2 messages max)
@@ -271,6 +312,9 @@ class TurgotGraphAgent:
             prompt = OUT_OF_SCOPE_RESPONSE_PROMPT.format(question=state.message)
             messages = [
                 SystemMessage(content=prompt),
+                SystemMessage(
+                    content=self._response_language_instruction(state.detected_language)
+                ),
             ]
 
             response = self.llm.invoke(messages)
@@ -300,10 +344,13 @@ class TurgotGraphAgent:
             history_dicts = self._convert_to_message_dicts(state.history_messages)
 
             # Trim messages to fit token limit
-            trimmed_history_dicts, total_tokens = self.message_trimmer.trim_messages(
+            trimmed_history_dicts, total_tokens, _ = (
+                self.message_trimmer.trim_messages_with_summary(
                 history_dicts,
                 system_messages=[{"role": "system", "content": TURGOT_PROMPT}],
                 context_text="Tu réponds sans utiliser de documents de référence. Sois naturel et utile.",
+                summarizer=self._summarize_history,
+            )
             )
 
             # Convert back to LangChain format
@@ -318,6 +365,9 @@ class TurgotGraphAgent:
                 SystemMessage(content=TURGOT_PROMPT),
                 SystemMessage(
                     content="Tu réponds sans utiliser de documents de référence. Sois naturel et utile."
+                ),
+                SystemMessage(
+                    content=self._response_language_instruction(state.detected_language)
                 ),
                 *trimmed_history,
                 HumanMessage(content=state.message),
@@ -378,7 +428,9 @@ class TurgotGraphAgent:
         try:
             logger.debug("Generating search query for RAG")
 
-            query = self.retriever.generate_search_query(state.message, state.history)
+            query = self.retriever.generate_search_query(
+                state.retrieval_message or state.message, state.history
+            )
             logger.debug(f"Generated search query: {query}")
 
             return state.model_copy(update={"search_query": query, "error": None})
@@ -449,7 +501,19 @@ class TurgotGraphAgent:
 
                         # Extract valid sources
                         if doc.sp_url is not None and doc.sp_url.strip():
-                            sources.append(doc.sp_url)
+                            title = (
+                                doc.source_file.split("/")[-1].replace(".xml", "")
+                                if doc.source_file
+                                else doc.sp_url
+                            )
+                            sources.append(
+                                {
+                                    "url": doc.sp_url,
+                                    "title": title,
+                                    "excerpt": (doc.page_content or "")[:220],
+                                    "data_source": doc.data_source or "other",
+                                }
+                            )
 
                 # Add documents from entreprendre (professionnels)
                 if entreprendre_docs:
@@ -462,7 +526,19 @@ class TurgotGraphAgent:
 
                         # Extract valid sources
                         if doc.sp_url is not None and doc.sp_url.strip():
-                            sources.append(doc.sp_url)
+                            title = (
+                                doc.source_file.split("/")[-1].replace(".xml", "")
+                                if doc.source_file
+                                else doc.sp_url
+                            )
+                            sources.append(
+                                {
+                                    "url": doc.sp_url,
+                                    "title": title,
+                                    "excerpt": (doc.page_content or "")[:220],
+                                    "data_source": doc.data_source or "other",
+                                }
+                            )
 
                 # Add other documents if any
                 if other_docs:
@@ -475,7 +551,19 @@ class TurgotGraphAgent:
 
                         # Extract valid sources
                         if doc.sp_url is not None and doc.sp_url.strip():
-                            sources.append(doc.sp_url)
+                            title = (
+                                doc.source_file.split("/")[-1].replace(".xml", "")
+                                if doc.source_file
+                                else doc.sp_url
+                            )
+                            sources.append(
+                                {
+                                    "url": doc.sp_url,
+                                    "title": title,
+                                    "excerpt": (doc.page_content or "")[:220],
+                                    "data_source": doc.data_source or "other",
+                                }
+                            )
 
                 context += "INSTRUCTION: Basez votre réponse UNIQUEMENT sur les informations contenues dans ces documents. "
                 context += "Si les documents contiennent des informations contradictoires ou incomplètes, mentionnez-le clairement. "
@@ -515,10 +603,13 @@ class TurgotGraphAgent:
             all_messages = history_dicts + [{"role": "user", "content": state.message}]
 
             # Trim messages to fit token limit
-            trimmed_messages, total_tokens = self.message_trimmer.trim_messages(
-                all_messages,
-                system_messages=system_messages,
-                context_text=state.context,
+            trimmed_messages, total_tokens, _ = (
+                self.message_trimmer.trim_messages_with_summary(
+                    all_messages,
+                    system_messages=system_messages,
+                    context_text=state.context,
+                    summarizer=self._summarize_history,
+                )
             )
 
             # Convert back to LangChain format and reconstruct message list
@@ -530,6 +621,9 @@ class TurgotGraphAgent:
             messages = [
                 SystemMessage(content=TURGOT_PROMPT),
                 SystemMessage(content=OUTPUT_PROMPT),
+                SystemMessage(
+                    content=self._response_language_instruction(state.detected_language)
+                ),
                 *trimmed_langchain,  # Use trimmed history
                 HumanMessage(content=state.message),
                 HumanMessage(content=state.context),
@@ -657,6 +751,57 @@ class TurgotGraphAgent:
 
         return langchain_messages
 
+    def _translate_to_french(self, message: str, source_language: str) -> str:
+        """Translate a user query to French for retrieval."""
+        try:
+            translate_prompt = (
+                "Traduis la requête suivante en français pour une recherche documentaire. "
+                "Préserve les détails administratifs. Réponds uniquement avec la traduction."
+            )
+            translated = self.classifier_llm.invoke(
+                [
+                    SystemMessage(content=translate_prompt),
+                    HumanMessage(
+                        content=f"Langue source: {source_language}\nRequête: {message}"
+                    ),
+                ]
+            )
+            return (translated.content or message).strip()
+        except Exception as e:
+            logger.warning(f"Query translation failed, using original message: {e}")
+            return message
+
+    def _response_language_instruction(self, language: str) -> str:
+        """Build a concise answer-language instruction."""
+        return (
+            f"La langue détectée de l'utilisateur est '{language}'. "
+            "Réponds strictement dans cette langue, tout en conservant les citations "
+            "des sources en français."
+        )
+
+    def _summarize_history(self, messages: list[dict]) -> str:
+        """Summarize dropped conversation turns with mistral-small."""
+        if not messages:
+            return ""
+
+        max_messages = messages[-20:]
+        history_text = "\n".join(
+            [f"{msg.get('role', 'user')}: {msg.get('content', '')}" for msg in max_messages]
+        )
+        summary_prompt = (
+            "Résume les échanges ci-dessous en mémoire conversationnelle utile pour "
+            "un assistant administratif français. "
+            "Conserve faits, préférences utilisateur, contraintes, étapes déjà faites "
+            "et questions en attente. Réponse en 8 puces maximum."
+        )
+        result = self.classifier_llm.invoke(
+            [
+                SystemMessage(content=summary_prompt),
+                HumanMessage(content=history_text),
+            ]
+        )
+        return (result.content or "").strip()
+
     def _strip_code_blocks(self, text: str) -> str:
         """Remove Markdown code block formatting from a string."""
         # Remove triple backtick code blocks
@@ -677,6 +822,11 @@ class TurgotGraphAgent:
         Returns:
             Generated response string
         """
+        metadata = self.ask_turgot_with_metadata(message, session_id)
+        return metadata["answer"]
+
+    def ask_turgot_with_metadata(self, message: str, session_id: str) -> dict[str, Any]:
+        """Process a request and return the answer plus lightweight metadata."""
         try:
             logger.info(
                 f"Processing request for session {session_id}: {message[:50]}..."
@@ -694,18 +844,32 @@ class TurgotGraphAgent:
 
             # Return the formatted response
             response = result.get("formatted_response", result.get("answer", ""))
-
             if not response:
                 logger.error("No response generated, using fallback")
                 response = "Désolé, une erreur est survenue lors de la génération de la réponse."
 
+            if result.get("is_non_administrative"):
+                query_type = "non_administrative"
+            elif result.get("needs_rag"):
+                query_type = "rag"
+            else:
+                query_type = "simple"
+
             logger.info("Request processed successfully")
-            return response
+            return {
+                "answer": response,
+                "query_type": query_type,
+                "total_tokens": int(result.get("total_tokens") or 0),
+            }
 
         except Exception as e:
             logger.error(f"Critical error in ask_turgot: {str(e)}")
             logger.exception("Full traceback:")
-            return "Désolé, une erreur critique est survenue lors de la génération de la réponse."
+            return {
+                "answer": "Désolé, une erreur critique est survenue lors de la génération de la réponse.",
+                "query_type": "error",
+                "total_tokens": 0,
+            }
 
     def stream_answer(self, message: str, session_id: str):
         """
@@ -720,6 +884,29 @@ class TurgotGraphAgent:
             # Load history
             history = self.redis_service.get_history(session_id)
             history_messages = history.messages if hasattr(history, "messages") else []
+            detected_language = "fr"
+            retrieval_message = message
+            try:
+                language_detect = self.classifier_llm.invoke(
+                    [
+                        SystemMessage(
+                            content=(
+                                "Détecte la langue dominante du message et réponds "
+                                "uniquement avec le code ISO 639-1 en minuscule."
+                            )
+                        ),
+                        HumanMessage(content=message),
+                    ]
+                )
+                detected_language = (language_detect.content or "fr").strip().lower()[:2]
+                if not detected_language.isalpha():
+                    detected_language = "fr"
+                if detected_language != "fr":
+                    retrieval_message = self._translate_to_french(
+                        message, detected_language
+                    )
+            except Exception as lang_err:
+                logger.warning(f"Stream language detection failed: {lang_err}")
 
             # Determine path: non-admin / simple / rag
             is_non_admin = self._is_non_administrative_question(message)
@@ -730,7 +917,7 @@ class TurgotGraphAgent:
                 # RAG classification similar to _classify_query
                 messages_cls = [
                     SystemMessage(content=RAG_CLASSIFICATION_PROMPT),
-                    HumanMessage(content=f"Question: {message}"),
+                    HumanMessage(content=f"Question: {retrieval_message}"),
                 ]
                 if history_messages:
                     recent_history = history_messages[-2:]
@@ -748,19 +935,27 @@ class TurgotGraphAgent:
                 result = self.classifier_llm.invoke(messages_cls)
                 needs_rag = result.content.strip().upper() == "OUI"
 
-            final_sources: list[str] = []
+            final_sources: list[dict] = []
 
             # Build messages to stream
             if is_non_admin:
                 prompt = OUT_OF_SCOPE_RESPONSE_PROMPT.format(question=message)
-                stream_messages = [SystemMessage(content=prompt)]
+                stream_messages = [
+                    SystemMessage(content=prompt),
+                    SystemMessage(
+                        content=self._response_language_instruction(detected_language)
+                    ),
+                ]
             elif not needs_rag:
                 # Simple path: trim history and build messages
                 history_dicts = self._convert_to_message_dicts(history_messages)
-                trimmed_history_dicts, _ = self.message_trimmer.trim_messages(
-                    history_dicts,
-                    system_messages=[{"role": "system", "content": TURGOT_PROMPT}],
-                    context_text="Tu réponds sans utiliser de documents de référence. Sois naturel et utile.",
+                trimmed_history_dicts, _, _ = (
+                    self.message_trimmer.trim_messages_with_summary(
+                        history_dicts,
+                        system_messages=[{"role": "system", "content": TURGOT_PROMPT}],
+                        context_text="Tu réponds sans utiliser de documents de référence. Sois naturel et utile.",
+                        summarizer=self._summarize_history,
+                    )
                 )
                 trimmed_history = self._convert_to_langchain_messages(
                     trimmed_history_dicts
@@ -770,17 +965,33 @@ class TurgotGraphAgent:
                     SystemMessage(
                         content="Tu réponds sans utiliser de documents de référence. Sois naturel et utile."
                     ),
+                    SystemMessage(
+                        content=self._response_language_instruction(detected_language)
+                    ),
                     *trimmed_history,
                     HumanMessage(content=message),
                 ]
             else:
                 # RAG path: retrieve and format context
+                search_query = retrieval_message
+                try:
+                    search_query = self.retriever.generate_search_query(
+                        retrieval_message, history
+                    )
+                    logger.debug(
+                        f"Streaming path generated search query: {search_query}"
+                    )
+                except Exception as rewrite_err:
+                    logger.warning(
+                        f"Streaming path query rewrite failed; using raw message: {rewrite_err}"
+                    )
+
                 docs = self.retriever.retrieve_documents(
-                    message, top_k=TOP_K_RETRIEVAL, max_docs=TOP_N_SOURCES
+                    search_query, top_k=TOP_K_RETRIEVAL, max_docs=TOP_N_SOURCES
                 )
                 # Format context + collect sources (inline to avoid dependency on _format_context internal string shape)
                 context_lines = ["CONTEXTE - Documents officiels trouvés :\n\n"]
-                sources: list[str] = []
+                sources: list[dict] = []
                 vosdroits_docs = [
                     d for d in docs if getattr(d, "data_source", None) == "vosdroits"
                 ]
@@ -805,7 +1016,19 @@ class TurgotGraphAgent:
                         context_lines.append(f"{doc.page_content}\n")
                         context_lines.append("---\n\n")
                         if getattr(doc, "sp_url", None):
-                            sources.append(doc.sp_url)
+                            title = (
+                                doc.source_file.split("/")[-1].replace(".xml", "")
+                                if getattr(doc, "source_file", None)
+                                else doc.sp_url
+                            )
+                            sources.append(
+                                {
+                                    "url": doc.sp_url,
+                                    "title": title,
+                                    "excerpt": (doc.page_content or "")[:220],
+                                    "data_source": doc.data_source or "other",
+                                }
+                            )
                 if entreprendre_docs:
                     context_lines.append(
                         "💼 DOCUMENTS POUR PROFESSIONNELS (entreprendre) :\n"
@@ -818,7 +1041,19 @@ class TurgotGraphAgent:
                         context_lines.append(f"{doc.page_content}\n")
                         context_lines.append("---\n\n")
                         if getattr(doc, "sp_url", None):
-                            sources.append(doc.sp_url)
+                            title = (
+                                doc.source_file.split("/")[-1].replace(".xml", "")
+                                if getattr(doc, "source_file", None)
+                                else doc.sp_url
+                            )
+                            sources.append(
+                                {
+                                    "url": doc.sp_url,
+                                    "title": title,
+                                    "excerpt": (doc.page_content or "")[:220],
+                                    "data_source": doc.data_source or "other",
+                                }
+                            )
                 if other_docs:
                     context_lines.append("📄 AUTRES DOCUMENTS :\n")
                     for doc in other_docs:
@@ -829,7 +1064,19 @@ class TurgotGraphAgent:
                         context_lines.append(f"{doc.page_content}\n")
                         context_lines.append("---\n\n")
                         if getattr(doc, "sp_url", None):
-                            sources.append(doc.sp_url)
+                            title = (
+                                doc.source_file.split("/")[-1].replace(".xml", "")
+                                if getattr(doc, "source_file", None)
+                                else doc.sp_url
+                            )
+                            sources.append(
+                                {
+                                    "url": doc.sp_url,
+                                    "title": title,
+                                    "excerpt": (doc.page_content or "")[:220],
+                                    "data_source": doc.data_source or "other",
+                                }
+                            )
                 context_lines.append(
                     "INSTRUCTION: Basez votre réponse UNIQUEMENT sur les informations contenues dans ces documents. "
                 )
@@ -849,10 +1096,13 @@ class TurgotGraphAgent:
                 ]
                 history_dicts = self._convert_to_message_dicts(history_messages)
                 all_messages = history_dicts + [{"role": "user", "content": message}]
-                trimmed_messages, _ = self.message_trimmer.trim_messages(
-                    all_messages,
-                    system_messages=system_messages,
-                    context_text=context_text,
+                trimmed_messages, _, _ = (
+                    self.message_trimmer.trim_messages_with_summary(
+                        all_messages,
+                        system_messages=system_messages,
+                        context_text=context_text,
+                        summarizer=self._summarize_history,
+                    )
                 )
                 trimmed_langchain = self._convert_to_langchain_messages(
                     trimmed_messages[:-1]
@@ -860,6 +1110,9 @@ class TurgotGraphAgent:
                 stream_messages = [
                     SystemMessage(content=TURGOT_PROMPT),
                     SystemMessage(content=OUTPUT_PROMPT),
+                    SystemMessage(
+                        content=self._response_language_instruction(detected_language)
+                    ),
                     *trimmed_langchain,
                     HumanMessage(content=message),
                     HumanMessage(content=context_text),

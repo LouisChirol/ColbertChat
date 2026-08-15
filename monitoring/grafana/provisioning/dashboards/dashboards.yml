@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: Turgot Dashboards
+    orgId: 1
+    folder: Turgot
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/json

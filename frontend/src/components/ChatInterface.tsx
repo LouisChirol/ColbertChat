@@ -20,14 +20,16 @@ interface Message {
         excerpt: string;
     }>;
     isError?: boolean;
+    feedback?: 1 | -1 | null;
 }
 
 interface ChatInterfaceProps {
     messages: Message[];
     isLoading: boolean;
+    onFeedback?: (messageId: string, value: 1 | -1) => void;
 }
 
-const ChatInterface = ({ messages, isLoading }: ChatInterfaceProps) => {
+const ChatInterface = ({ messages, isLoading, onFeedback }: ChatInterfaceProps) => {
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => {
@@ -57,16 +59,19 @@ const ChatInterface = ({ messages, isLoading }: ChatInterfaceProps) => {
                     .map((message) => (
                         <Message
                             key={message.id}
+                            messageId={message.id}
                             role={message.isUser ? 'user' : 'assistant'}
                             content={message.content}
                             isStreaming={message.isStreaming}
                             sources={message.sources}
                             secondarySources={message.secondarySources}
                             isError={message.isError}
+                            feedback={message.feedback}
+                            onFeedback={onFeedback}
                         />
                     ))}
                 {(isLoading || hasStreamingEmpty) && (
-                    <div className="flex justify-start gap-3">
+                    <div className="flex justify-start gap-3" aria-live="polite" aria-label="Réponse en cours de génération">
                         <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0">
                             <Image
                                 src="/turgot_thinking.png"

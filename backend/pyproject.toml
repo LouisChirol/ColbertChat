@@ -8,6 +8,7 @@ authors = [
 dependencies = [
     "fastapi>=0.68.0",
     "uvicorn>=0.15.0",
+    "gunicorn>=22.0.0",
     "python-dotenv>=0.19.0",
     "langchain>=0.1.0",
     "langchain-core>=0.1.0",
@@ -18,7 +19,6 @@ dependencies = [
     "mistralai>=1.7.0",
     "mistral-common>=1.0.0",
     "langchain-redis>=0.2.0",
-    "langchain-tavily>=0.1.6",
     "chromadb>=1.0.9",
     "langchain-community>=0.3.23",
     "ipykernel>=6.29.5",
@@ -32,6 +32,12 @@ dependencies = [
     "gtts>=2.5.4",
     "requests>=2.32.3",
     "python-multipart>=0.0.20",
+    "slowapi>=0.1.9",
+    "prometheus-fastapi-instrumentator>=7.1.0",
+    "prometheus-client>=0.21.1",
+    "pytest>=8.3.2",
+    "ruff>=0.6.9",
+    "sentence-transformers",
 ]
 requires-python = ">=3.11"
 

@@ -4,7 +4,6 @@ Utility functions and classes.
 Contains token counting, search utilities, and other helper functions.
 """
 
-from .search import WebsiteSearchTool
 from .tokens import (
                      MessageTrimmer,
                      TokenCounter,
@@ -21,5 +20,4 @@ __all__ = [
     "create_message_trimmer",
     "count_tokens",
     "trim_messages_to_limit",
-    "WebsiteSearchTool",
 ]

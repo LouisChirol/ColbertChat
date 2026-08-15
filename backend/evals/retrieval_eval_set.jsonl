@@ -1,0 +1,40 @@
+{"id": "q001", "question": "Comment renouveler mon passeport ?", "expected_doc_ids": ["F556", "F37904"]}
+{"id": "q002", "question": "Quels documents fournir pour une première carte d'identité ?", "expected_doc_ids": ["F1341", "F21089"]}
+{"id": "q003", "question": "Comment déclarer un changement d'adresse après un déménagement ?", "expected_doc_ids": ["F383", "F35807"]}
+{"id": "q004", "question": "Comment faire une pré-demande de carte d'identité en ligne ?", "expected_doc_ids": ["R45668", "F1153"]}
+{"id": "q005", "question": "Comment obtenir un extrait d'acte de naissance ?", "expected_doc_ids": ["F31715", "R1405"]}
+{"id": "q006", "question": "Comment demander un extrait de casier judiciaire bulletin n°3 ?", "expected_doc_ids": ["F1420", "R1264"]}
+{"id": "q007", "question": "Quelles démarches pour s'inscrire sur les listes électorales ?", "expected_doc_ids": ["R16396", "F1367"]}
+{"id": "q008", "question": "Comment obtenir une copie de mon livret de famille ?", "expected_doc_ids": ["N31784", "F11996"]}
+{"id": "q009", "question": "Comment signaler la perte de ma carte grise ?", "expected_doc_ids": ["R47917", "F1726"]}
+{"id": "q010", "question": "Comment immatriculer un véhicule d'occasion acheté en France ?", "expected_doc_ids": ["F1050", "F2991"]}
+{"id": "q011", "question": "Comment déclarer la vente de mon véhicule ?", "expected_doc_ids": ["R41137", "F1707"]}
+{"id": "q012", "question": "Comment demander un permis de conduire international ?", "expected_doc_ids": ["R50828", "F11534"]}
+{"id": "q013", "question": "Comment renouveler mon permis de conduire ?", "expected_doc_ids": ["F1255", "F2832"]}
+{"id": "q014", "question": "Comment contester une amende routière ?", "expected_doc_ids": ["F35218", "R42185"]}
+{"id": "q015", "question": "Comment demander la prime d'activité ?", "expected_doc_ids": ["F34700", "F34701"]}
+{"id": "q016", "question": "Comment faire une demande de RSA ?", "expected_doc_ids": ["F19778", "R50284"]}
+{"id": "q017", "question": "Comment demander les APL ?", "expected_doc_ids": ["F12006", "F33173"]}
+{"id": "q018", "question": "Comment déclarer mes ressources à la CAF ?", "expected_doc_ids": ["F14199", "R1361"]}
+{"id": "q019", "question": "Comment obtenir l'attestation de droits à l'assurance maladie ?", "expected_doc_ids": ["F10662", "R49811"]}
+{"id": "q020", "question": "Comment demander la Complémentaire santé solidaire ?", "expected_doc_ids": ["F10027", "R54651"]}
+{"id": "q021", "question": "Comment déclarer mes impôts en ligne ?", "expected_doc_ids": ["F358", "F1265"]}
+{"id": "q022", "question": "Comment corriger une déclaration d'impôt déjà envoyée ?", "expected_doc_ids": ["F33885", "F110"]}
+{"id": "q023", "question": "Comment demander un délai de paiement pour mes impôts ?", "expected_doc_ids": ["F3124", "F38672"]}
+{"id": "q024", "question": "Comment payer la taxe foncière ?", "expected_doc_ids": ["F59", "F31686"]}
+{"id": "q025", "question": "Comment obtenir un avis de situation déclarative à l'impôt sur le revenu ?", "expected_doc_ids": ["F99", "R2740"]}
+{"id": "q026", "question": "Comment créer mon espace Urssaf auto-entrepreneur ?", "expected_doc_ids": ["R14267", "F36832"]}
+{"id": "q027", "question": "Comment déclarer mon chiffre d'affaires en micro-entreprise ?", "expected_doc_ids": ["F23257", "R19133"]}
+{"id": "q028", "question": "Comment obtenir un extrait Kbis ?", "expected_doc_ids": ["F21000", "R71249"]}
+{"id": "q029", "question": "Comment modifier les statuts de ma société ?", "expected_doc_ids": ["F32234", "F36015"]}
+{"id": "q030", "question": "Comment fermer une micro-entreprise ?", "expected_doc_ids": ["F36746", "F33339"]}
+{"id": "q031", "question": "Comment demander un certificat de nationalité française ?", "expected_doc_ids": ["F1051", "F18713"]}
+{"id": "q032", "question": "Comment obtenir une attestation d'accueil pour un étranger ?", "expected_doc_ids": ["F2191", "F31847"]}
+{"id": "q033", "question": "Comment demander un titre de séjour ?", "expected_doc_ids": ["F2689", "F17319"]}
+{"id": "q034", "question": "Comment renouveler mon titre de séjour étudiant ?", "expected_doc_ids": ["F2231", "F35799"]}
+{"id": "q035", "question": "Comment demander l'aide juridictionnelle ?", "expected_doc_ids": ["F18074", "F38461"]}
+{"id": "q036", "question": "Comment saisir le Défenseur des droits ?", "expected_doc_ids": ["F1628", "F1642"]}
+{"id": "q037", "question": "Comment signaler une fraude à la carte bancaire ?", "expected_doc_ids": ["R46526", "F31324"]}
+{"id": "q038", "question": "Comment faire une procuration de vote ?", "expected_doc_ids": ["F1604", "F35316"]}
+{"id": "q039", "question": "Comment obtenir la médaille d'honneur du travail ?", "expected_doc_ids": ["F10", "R57479"]}
+{"id": "q040", "question": "Comment consulter mes points de permis de conduire ?", "expected_doc_ids": ["R17121", "F17970"]}

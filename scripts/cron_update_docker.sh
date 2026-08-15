@@ -33,6 +33,8 @@ flock -n "$LOCK_FILE" bash -c '
     sleep 1
   done
   docker compose --profile maintenance run --rm db_updater
+  echo "Running retrieval evaluation set..."
+  docker compose run --rm backend python scripts/run_retrieval_eval.py
   docker compose start backend || true
 '
 
