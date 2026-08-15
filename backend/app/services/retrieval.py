@@ -1,6 +1,7 @@
 import os
 import time
 from pathlib import Path
+from typing import Literal
 
 from langchain_chroma import Chroma
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -41,6 +42,14 @@ RERANKER_ENABLED = os.getenv("RERANKER_ENABLED", "true").lower() in {
     "true",
     "yes",
 }
+BOFIP_RETRIEVAL_ENABLED = os.getenv("BOFIP_RETRIEVAL_ENABLED", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+BOFIP_TOP_K = int(os.getenv("BOFIP_TOP_K", "12"))
+BOFIP_MAX_DOCS = int(os.getenv("BOFIP_MAX_DOCS", "3"))
+SERVICE_PUBLIC_TOP_K = int(os.getenv("SERVICE_PUBLIC_TOP_K", "15"))
 
 
 class DocumentRetrieved(BaseModel):
@@ -65,12 +74,29 @@ class DocumentRetriever:
         # Ensure the chroma_db directory exists
         CHROMA_DB_PATH.mkdir(parents=True, exist_ok=True)
 
-        # Initialize vector store
+        # Service-Public procedural corpus
         self.vector_store = Chroma(
             collection_name="service_public",
             embedding_function=self.embeddings,
             persist_directory=str(CHROMA_DB_PATH),
         )
+
+        self.bofip_vector_store: Chroma | None = None
+        if BOFIP_RETRIEVAL_ENABLED:
+            try:
+                bofip_store = Chroma(
+                    collection_name="bofip",
+                    embedding_function=self.embeddings,
+                    persist_directory=str(CHROMA_DB_PATH),
+                )
+                bofip_count = bofip_store._collection.count()
+                if bofip_count > 0:
+                    self.bofip_vector_store = bofip_store
+                    logger.info(f"BOFiP collection ready with {bofip_count} vectors")
+                else:
+                    logger.info("BOFiP collection empty; tax doctrine retrieval disabled")
+            except Exception as e:
+                logger.warning(f"BOFiP collection unavailable: {e}")
 
         # Initialize small model for query generation and document synthesis
         self.query_llm = ChatMistralAI(
@@ -154,42 +180,109 @@ class DocumentRetriever:
             data_source=doc1.data_source,
         )
 
+    def _document_key(self, doc: DocumentRetrieved) -> str:
+        source = doc.data_source or "unknown"
+        doc_id = doc.id or doc.sp_url or doc.source_file or ""
+        return f"{source}:{doc_id}"
+
     def merge_documents(self, docs: list[DocumentRetrieved]) -> list[DocumentRetrieved]:
-        """Merge documents with the same ID into a single one."""
-        merged_docs = {}
+        """Merge chunk hits that belong to the same source document."""
+        merged_docs: dict[str, DocumentRetrieved] = {}
 
         for doc in docs:
-            if doc.id not in merged_docs:
-                merged_docs[doc.id] = doc
+            key = self._document_key(doc)
+            if key not in merged_docs:
+                merged_docs[key] = doc
             else:
-                merged_docs[doc.id] = self.merge_document_pair(merged_docs[doc.id], doc)
+                merged_docs[key] = self.merge_document_pair(merged_docs[key], doc)
 
         return list(merged_docs.values())
+
+    def _chroma_to_document(
+        self, doc, collection: Literal["service_public", "bofip"]
+    ) -> DocumentRetrieved:
+        if collection == "bofip":
+            title = doc.metadata.get("title") or ""
+            return DocumentRetrieved(
+                id=doc.metadata.get("document_id"),
+                source_file=title or doc.metadata.get("source_file", ""),
+                sp_url=doc.metadata.get("canonical_url"),
+                page_content=doc.page_content,
+                data_source="bofip",
+            )
+
+        return DocumentRetrieved(
+            id=doc.metadata.get("ID"),
+            source_file=doc.metadata.get("source_file", ""),
+            sp_url=doc.metadata.get("spUrl"),
+            page_content=doc.page_content,
+            data_source=doc.metadata.get("data_source"),
+        )
+
+    def _apply_source_caps(
+        self,
+        docs: list[DocumentRetrieved],
+        max_docs: int,
+        bofip_max: int,
+    ) -> list[DocumentRetrieved]:
+        """Keep rerank order while limiting BOFiP hits in the final context."""
+        if max_docs <= 0:
+            return []
+
+        selected: list[DocumentRetrieved] = []
+        bofip_count = 0
+
+        for doc in docs:
+            if len(selected) >= max_docs:
+                break
+            if doc.data_source == "bofip":
+                if bofip_max <= 0 or bofip_count >= bofip_max:
+                    continue
+                bofip_count += 1
+            selected.append(doc)
+
+        if len(selected) < max_docs:
+            for doc in docs:
+                if doc in selected:
+                    continue
+                if len(selected) >= max_docs:
+                    break
+                selected.append(doc)
+
+        return selected
 
     def retrieve_documents(
         self, query: str, top_k: int = 20, max_docs: int = 5
     ) -> list[DocumentRetrieved]:
-        """Retrieve docs, rerank candidates, then keep the best max_docs."""
-        docs = self.vector_store.similarity_search(query, k=top_k)
+        """Retrieve from Service-Public and BOFiP, rerank, then keep the best max_docs."""
+        sp_k = min(top_k, SERVICE_PUBLIC_TOP_K)
+        sp_hits = self.vector_store.similarity_search(query, k=sp_k)
         retrieved_docs = [
-            DocumentRetrieved(
-                id=doc.metadata.get("ID"),
-                source_file=doc.metadata.get("source_file", ""),
-                sp_url=doc.metadata.get("spUrl"),
-                page_content=doc.page_content,
-                data_source=doc.metadata.get("data_source"),
-            )
-            for doc in docs
+            self._chroma_to_document(doc, "service_public") for doc in sp_hits
         ]
+
+        bofip_hits: list = []
+        if self.bofip_vector_store is not None:
+            bofip_hits = self.bofip_vector_store.similarity_search(query, k=BOFIP_TOP_K)
+            retrieved_docs.extend(
+                [self._chroma_to_document(doc, "bofip") for doc in bofip_hits]
+            )
+
+        total_hits = len(sp_hits) + len(bofip_hits)
         retrieved_docs = self.merge_documents(retrieved_docs)
         retrieved_docs = self._rerank_documents(
             query=query, docs=retrieved_docs, max_docs=max_docs
         )
+        retrieved_docs = self._apply_source_caps(
+            retrieved_docs,
+            max_docs=max_docs,
+            bofip_max=BOFIP_MAX_DOCS if self.bofip_vector_store else 0,
+        )
 
         logger.info(
-            f"Retrieved {len(retrieved_docs)} unique documents from {len(docs)} total matches; returning top {max_docs}"
+            f"Retrieved {len(retrieved_docs)} unique documents from {total_hits} total matches "
+            f"(service_public={len(sp_hits)}, bofip={len(bofip_hits)}); returning top {max_docs}"
         )
-        retrieved_docs = retrieved_docs[:max_docs]
         return retrieved_docs
 
     def _rerank_documents(

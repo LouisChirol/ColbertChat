@@ -104,6 +104,7 @@ const Message = ({
   const getSourceTypeLabel = (source: Source) => {
     if (source.url.includes('vosdroits') || source.data_source === 'vosdroits') return 'Particuliers';
     if (source.url.includes('entreprendre') || source.data_source === 'entreprendre') return 'Professionnels';
+    if (source.data_source === 'bofip') return 'Doctrine fiscale';
     return 'Officiel';
   };
 

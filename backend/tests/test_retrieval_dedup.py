@@ -19,6 +19,7 @@ def _build_retriever_for_unit_tests() -> DocumentRetriever:
     # Bypass __init__ to avoid loading embeddings/Chroma from disk and network.
     retriever = DocumentRetriever.__new__(DocumentRetriever)
     retriever.reranker = None
+    retriever.bofip_vector_store = None
     return retriever
 
 
@@ -64,3 +65,30 @@ def test_retrieve_documents_deduplicates_and_applies_max_docs():
     assert result[0].id == "A1"
     assert "Chunk 1" in result[0].page_content
     assert "Chunk 2" in result[0].page_content
+
+
+def test_retrieve_documents_merges_bofip_and_service_public():
+    retriever = _build_retriever_for_unit_tests()
+    retriever.vector_store = SimpleNamespace(
+        similarity_search=lambda query, k: [_doc("SP1", "SP chunk")]
+    )
+    retriever.bofip_vector_store = SimpleNamespace(
+        similarity_search=lambda query, k: [
+            SimpleNamespace(
+                page_content="BOFiP chunk",
+                metadata={
+                    "document_id": "BOF-1",
+                    "canonical_url": "https://bofip.impots.gouv.fr/bofip/BOF-1",
+                    "title": "Titre fiscal",
+                    "source_file": "records/BOF-1.json",
+                    "data_source": "bofip",
+                },
+            )
+        ]
+    )
+
+    result = retriever.retrieve_documents("impôt sur le revenu", top_k=20, max_docs=2)
+
+    assert len(result) == 2
+    sources = {doc.data_source for doc in result}
+    assert sources == {"vosdroits", "bofip"}

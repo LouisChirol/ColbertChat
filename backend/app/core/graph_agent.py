@@ -480,15 +480,37 @@ class TurgotGraphAgent:
                 sources = []
 
                 # Group documents by data source for better organization
-                vosdroits_docs = [doc for doc in docs if doc.data_source == "vosdroits"]
+                bofip_docs = [doc for doc in docs if doc.data_source == "bofip"]
+                vosdroits_docs = [
+                    doc for doc in docs if doc.data_source == "vosdroits"
+                ]
                 entreprendre_docs = [
                     doc for doc in docs if doc.data_source == "entreprendre"
                 ]
                 other_docs = [
                     doc
                     for doc in docs
-                    if doc.data_source not in ["vosdroits", "entreprendre"]
+                    if doc.data_source not in ["vosdroits", "entreprendre", "bofip"]
                 ]
+
+                if bofip_docs:
+                    context += "📋 DOCTRINE FISCALE (BOFiP) :\n"
+                    for doc in bofip_docs:
+                        title = doc.source_file or doc.id or "BOFiP"
+                        context += f"Document {doc.id} — {title} (URL: {doc.sp_url}):\n"
+                        context += "Extraits pertinents:\n"
+                        context += f"{doc.page_content}\n"
+                        context += "---\n\n"
+
+                        if doc.sp_url is not None and doc.sp_url.strip():
+                            sources.append(
+                                {
+                                    "url": doc.sp_url,
+                                    "title": title,
+                                    "excerpt": (doc.page_content or "")[:220],
+                                    "data_source": "bofip",
+                                }
+                            )
 
                 # Add documents from vosdroits (particuliers)
                 if vosdroits_docs:
