@@ -3,33 +3,47 @@
 import { useDarkMode } from '@/hooks/useDarkMode';
 import { Info, Moon, Sun } from 'lucide-react';
 
-export function InfoButton({ onClick }: { onClick: () => void }) {
+export function InfoButton({
+  onClick,
+  compact = false,
+}: {
+  onClick: () => void;
+  compact?: boolean;
+}) {
   return (
     <button
       onClick={onClick}
-      className="bg-yellow-400 hover:bg-yellow-500 dark:bg-yellow-500 dark:hover:bg-yellow-600 text-black p-2 rounded-full shadow-lg group relative"
+      className={`bg-yellow-400 hover:bg-yellow-500 dark:bg-yellow-500 dark:hover:bg-yellow-600 text-black rounded-full shadow-lg group relative ${
+        compact ? 'p-1.5' : 'p-2'
+      }`}
       aria-label="Afficher le disclaimer"
       type="button"
     >
-      <Info className="h-6 w-6" />
-      <span className="absolute left-1/2 -translate-x-1/2 top-full mt-2 bg-gray-900 dark:bg-gray-700 text-white text-sm py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap max-w-[200px] text-center">
+      <Info className={compact ? 'h-5 w-5' : 'h-6 w-6'} />
+      <span className="absolute left-1/2 -translate-x-1/2 top-full mt-2 bg-gray-900 dark:bg-gray-700 text-white text-sm py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap max-w-[200px] text-center hidden sm:block">
         Informations importantes
       </span>
     </button>
   );
 }
 
-export function DarkModeButton() {
+export function DarkModeButton({ compact = false }: { compact?: boolean }) {
   const { isDark, toggleDarkMode } = useDarkMode();
   return (
     <button
       onClick={toggleDarkMode}
-      className="bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white p-2 rounded-full shadow-lg group relative"
+      className={`bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-full shadow-lg group relative ${
+        compact ? 'p-1.5' : 'p-2'
+      }`}
       aria-label={isDark ? "Activer le mode clair" : "Activer le mode sombre"}
       type="button"
     >
-      {isDark ? <Sun className="h-6 w-6" /> : <Moon className="h-6 w-6" />}
-      <span className="absolute left-1/2 -translate-x-1/2 top-full mt-2 bg-gray-900 dark:bg-gray-700 text-white text-sm py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap max-w-[200px] text-center">
+      {isDark ? (
+        <Sun className={compact ? 'h-5 w-5' : 'h-6 w-6'} />
+      ) : (
+        <Moon className={compact ? 'h-5 w-5' : 'h-6 w-6'} />
+      )}
+      <span className="absolute left-1/2 -translate-x-1/2 top-full mt-2 bg-gray-900 dark:bg-gray-700 text-white text-sm py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap max-w-[200px] text-center hidden sm:block">
         {isDark ? "Mode clair" : "Mode sombre"}
       </span>
     </button>

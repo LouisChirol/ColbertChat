@@ -5,6 +5,8 @@ type Messages = {
 const FR_MESSAGES: Messages = {
   ui: {
     assistantTagline: "Assistant démarches & fiscalité (sources officielles)",
+    assistantTaglineMobile: "Démarches & fiscalité",
+    backToHome: "Retour à louischirol.fr",
     openMenu: "Ouvrir le menu",
     chatPlaceholder: "Posez votre question...",
     sendMessage: "Envoyer le message",
@@ -21,6 +23,8 @@ const FR_MESSAGES: Messages = {
 const EN_MESSAGES: Messages = {
   ui: {
     assistantTagline: "Public services & tax assistant (official sources)",
+    assistantTaglineMobile: "Public services & tax",
+    backToHome: "Back to louischirol.fr",
     openMenu: "Open menu",
     chatPlaceholder: "Ask your question...",
     sendMessage: "Send message",

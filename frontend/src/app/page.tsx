@@ -239,36 +239,53 @@ export default function Home() {
     <main className="flex flex-col h-[100dvh]">
       <header className="shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 transition-colors duration-200">
         <div className="max-w-4xl mx-auto px-3 sm:px-4 py-2 sm:py-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-start gap-2.5 sm:gap-3 min-w-0 flex-1">
               <Image
                 src="/turgot_v2.png"
                 alt="Turgot Assistant"
                 width={48}
                 height={48}
-                className="rounded-full shrink-0 w-10 h-10 sm:w-12 sm:h-12"
+                className="rounded-full shrink-0 w-9 h-9 sm:w-12 sm:h-12 mt-0.5"
               />
-              <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-2xl font-bold dark:text-white">Turgot</h1>
-                  <div className="w-6 h-4 flex overflow-hidden rounded-sm shadow-sm">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h1 className="text-lg sm:text-2xl font-bold dark:text-white leading-tight">Turgot</h1>
+                  <div className="w-6 h-4 flex overflow-hidden rounded-sm shadow-sm shrink-0">
                     <div className="flex-1 bg-blue-600"></div>
                     <div className="flex-1 bg-white"></div>
                     <div className="flex-1 bg-red-600"></div>
                   </div>
+                  <a
+                    href="https://louischirol.fr"
+                    className="hidden sm:inline text-xs text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 underline-offset-2 hover:underline"
+                  >
+                    {t('backToHome')}
+                  </a>
                 </div>
-                <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-300 truncate">{t('assistantTagline')}</p>
+                <p className="text-xs text-gray-600 dark:text-gray-300 leading-snug mt-0.5 sm:hidden">
+                  {t('assistantTaglineMobile')}
+                </p>
+                <a
+                  href="https://louischirol.fr"
+                  className="sm:hidden text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1 inline-block"
+                >
+                  {t('backToHome')}
+                </a>
+                <p className="hidden sm:block text-sm text-gray-600 dark:text-gray-300 leading-snug mt-0.5">
+                  {t('assistantTagline')}
+                </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <InfoButton onClick={() => setIsDisclaimerOpen(true)} />
-              <DarkModeButton />
+            <div className="flex items-center gap-0.5 sm:gap-2 shrink-0 pt-0.5">
+              <InfoButton onClick={() => setIsDisclaimerOpen(true)} compact />
+              <DarkModeButton compact />
               <button
                 onClick={() => setIsDrawerOpen(true)}
-                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 aria-label={t('openMenu')}
               >
-                <Bars3Icon className="h-7 w-7 text-gray-700 dark:text-gray-200" />
+                <Bars3Icon className="h-6 w-6 sm:h-7 sm:w-7 text-gray-700 dark:text-gray-200" />
               </button>
             </div>
           </div>
