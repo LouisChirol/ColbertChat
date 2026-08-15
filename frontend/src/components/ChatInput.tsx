@@ -86,7 +86,7 @@ const ChatInput = ({
   }, [error, clearError]);
 
   return (
-    <form onSubmit={handleSubmit} className="chat-input bg-white dark:bg-gray-800 flex items-center gap-2 p-4 border-t transition-colors duration-200">
+    <form onSubmit={handleSubmit} className="chat-input flex items-center gap-2">
       <div className="flex-1">
         <label htmlFor="chat-input-textarea" className="sr-only">
           Zone de saisie du message
