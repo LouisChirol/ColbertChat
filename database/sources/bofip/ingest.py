@@ -235,6 +235,18 @@ class BofipIngestor:
             "estimated_cost_usd": round(est_cost_usd, 4),
         }
 
+    def estimate_delta_embed_cost(self, files: Iterable[Path]) -> Dict[str, Any]:
+        """Estimate embed cost for new or changed records only (for cron guardrails)."""
+        to_embed = [
+            file_path
+            for file_path in files
+            if self._file_status(file_path).status in {"new", "updated"}
+        ]
+        estimate = self.estimate_embed_cost(to_embed)
+        estimate["files_to_embed"] = len(to_embed)
+        estimate["unchanged_files"] = len(files) - len(to_embed)
+        return estimate
+
     @backoff.on_exception(
         backoff.expo,
         Exception,

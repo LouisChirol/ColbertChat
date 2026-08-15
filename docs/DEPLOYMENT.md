@@ -50,6 +50,22 @@ cd ~/turgot && ./scripts/deploy.sh
 
 Verify: `https://turgot.louischirol.fr` and `https://turgot.louischirol.fr/api/`
 
+## Scheduled database updates (production server)
+
+| Job | Schedule | Script | What it does |
+|-----|----------|--------|----------------|
+| Service-Public | Mon 03:00 | `scripts/cron_update_docker.sh` | Download SP XML, delta embed `service_public`, retrieval eval |
+| BOFiP | 1st of month 04:00 | `scripts/cron_bofip_update_docker.sh` | Download BOFiP API, delta embed `bofip` (hash tracking) |
+
+BOFiP cron uses `BOFIP_MAX_COST_USD` (default `5.00`) against **delta** embed estimate only. Logs: `~/turgot/logs/bofip_update_*.log`.
+
+Manual BOFiP run on server:
+
+```bash
+cd ~/turgot
+BOFIP_MAX_COST_USD=5.00 ./scripts/cron_bofip_update_docker.sh
+```
+
 ## Manual rollback
 
 ```bash
