@@ -44,6 +44,7 @@ MAX_AUDIO_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 MB
 ALLOWED_ORIGINS = [
     "https://turgotchat.fr",
     "https://www.turgotchat.fr",
+    "https://turgot.louischirol.fr",
 ]
 
 # Session cache for aggregate usage metrics (process-local only).
@@ -184,7 +185,6 @@ async def lifespan(app: FastAPI):
     global agent
     logger.info("Starting Turgot backend...")
     agent = TurgotGraphAgent()
-    Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
     logger.info("Turgot agent initialized")
     yield
     # Shutdown
@@ -213,6 +213,11 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
+)
+
+# Must register before workers finish startup; agent init in lifespan can take 30s+.
+Instrumentator().instrument(app).expose(
+    app, endpoint="/metrics", include_in_schema=False
 )
 
 

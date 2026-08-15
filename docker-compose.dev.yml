@@ -1,0 +1,33 @@
+# Local development: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# Publishes ports on localhost and does not require the `web` / monitoring networks.
+
+services:
+  frontend:
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    networks:
+      - default
+
+  backend:
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      - ENVIRONMENT=development
+    networks:
+      - default
+
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"
+    networks:
+      - default
+
+networks:
+  default:
+    driver: bridge

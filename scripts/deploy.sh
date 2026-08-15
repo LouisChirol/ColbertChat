@@ -1,31 +1,28 @@
 #!/bin/bash
+set -euo pipefail
 
-# Create directory if it doesn't exist
+# Production deploy for the shared Caddy + `web` network stack (lchirol-infra).
+# Edge TLS and routing live in ~/lchirol/infra/Caddyfile — not in this repo's nginx/.
+
 mkdir -p ~/turgot
 cd ~/turgot
 
-# Ensure logs directory exists with proper permissions
 mkdir -p backend/logs
 chmod 777 backend/logs
 
-# Copy Nginx configuration
-echo "Updating Nginx configuration..."
-sudo cp nginx/turgotchat.fr.conf /etc/nginx/sites-available/turgotchat.fr
-sudo ln -sf /etc/nginx/sites-available/turgotchat.fr /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-
-# Copy production environment file
 echo "Setting up environment files..."
 cp frontend/.env.production frontend/.env
 
-# Stop and remove existing containers
-docker-compose down
+echo "Stopping existing containers..."
+docker compose down
 
-# Build and start containers
+echo "Building and starting services..."
 docker compose up -d --build frontend backend redis
 
-# Show container status 
-docker-compose ps
+docker compose ps
 
-echo "Deployment complete! Your application is running at https://turgotchat.fr"
-echo "Logs are available at ~/turgot/backend/logs/turgot_backend.log" 
+echo "Deployment complete!"
+echo "  Primary URL: https://turgot.louischirol.fr"
+echo "  API path:    https://turgot.louischirol.fr/api/"
+echo "  Legacy API:  https://api.turgotchat.fr (kept for old clients)"
+echo "Logs: ~/turgot/backend/logs/turgot_backend.log"
