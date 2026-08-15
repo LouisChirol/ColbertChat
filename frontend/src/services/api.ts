@@ -174,24 +174,3 @@ export const submitFeedback = async (
     throw new Error("Failed to store feedback");
   }
 };
-
-export const uploadDocument = async (
-  file: File,
-  consentConfirmed: boolean
-): Promise<{ filename: string; pages: number; message: string }> => {
-  const formData = new FormData();
-  formData.append("document", file);
-  formData.append("consent_confirmed", String(consentConfirmed));
-
-  const response = await fetch(`${API_URL}/document-upload`, {
-    method: "POST",
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || "Upload failed");
-  }
-
-  return response.json();
-};

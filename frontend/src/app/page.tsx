@@ -13,11 +13,20 @@ import Image from 'next/image';
 import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 
-const WELCOME_MESSAGE = `Bonjour ! Je suis Turgot — démarches administratives et fiscalité, avec **sources officielles** citées sous chaque réponse.
+const WELCOME_MESSAGE = `Bonjour ! Je suis Turgot, votre assistant pour les **démarches administratives** et la **fiscalité** en France. 🏛️
 
-**Particuliers** · **Professionnels** · **Doctrine fiscale** (BOFiP)
+Je m'appuie sur des textes officiels — fiches pratiques du Service Public et publications du BOFiP (impôts) — et je cite mes sources sous chaque réponse.
 
-Exemple : « Quel taux de TVA pour une prestation de photographie ? »`;
+**Où je cherche l'information :**
+- [service-public.fr](https://www.service-public.fr/particuliers) — identité, logement, famille, retraite, vie quotidienne
+- [entreprendre.service-public.fr](https://entreprendre.service-public.fr) — création d'entreprise, TVA, cotisations, formalités
+- [bofip.impots.gouv.fr](https://bofip.impots.gouv.fr) — doctrine fiscale (impôts, TVA, crédits d'impôt, plus-values)
+
+**Quelques exemples :**
+- « Quel est le coût du renouvellement d'une carte d'identité en cas de perte ? »
+- « Quel taux de TVA pour une prestation de photographie ? »
+
+Comment puis-je vous aider aujourd'hui ?`;
 
 type Source = {
   url: string;
@@ -276,6 +285,11 @@ export default function Home() {
         <SupportButton />
 
         <div className="shrink-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 pb-safe transition-colors duration-200">
+          <div className="h-1 flex max-w-4xl mx-auto">
+            <div className="flex-1 bg-blue-600"></div>
+            <div className="flex-1 bg-white"></div>
+            <div className="flex-1 bg-red-600"></div>
+          </div>
           <div className="max-w-4xl mx-auto px-3 sm:px-4 py-2">
             <ChatInput
               onSendMessage={handleSendMessage}

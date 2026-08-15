@@ -37,6 +37,12 @@ from slowapi.errors import RateLimitExceeded
 ENVIRONMENT = os.getenv("ENVIRONMENT", "production")
 IS_PRODUCTION = ENVIRONMENT == "production"
 
+DOCUMENT_UPLOAD_ENABLED = os.getenv("DOCUMENT_UPLOAD_ENABLED", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+
 # Max size (bytes) accepted for audio transcription uploads.
 MAX_AUDIO_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 MB
 
@@ -344,11 +350,12 @@ async def document_upload(
     document: UploadFile = File(...),
 ):
     """
-    Phase 4 skeleton endpoint:
-    - strict size/page limits
-    - in-memory processing only
-    - no persistent storage
-    """
+    Phase 4 skeleton endpoint (disabled by default).
+    Set DOCUMENT_UPLOAD_ENABLED=true to expose validation-only handling.
+  """
+    if not DOCUMENT_UPLOAD_ENABLED:
+        raise HTTPException(status_code=404, detail="Fonctionnalité non disponible")
+
     try:
         if not consent_confirmed:
             raise HTTPException(
