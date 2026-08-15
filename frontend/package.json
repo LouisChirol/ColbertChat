@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start -H 0.0.0.0",
     "lint": "next lint",
-    "clean": "rimraf .next"
+    "clean": "rimraf .next",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.4",
@@ -17,6 +18,7 @@
     "lru-cache": "^10.2.0",
     "lucide-react": "^0.515.0",
     "next": "^14.2.28",
+    "next-intl": "^3.26.5",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^10.1.0",
@@ -25,6 +27,7 @@
     "uuid": "^11.1.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.47.2",
     "@types/node": "^20.11.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",

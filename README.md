@@ -21,24 +21,19 @@ Turgot provides a conversational interface to access information from Service-Pu
 
 ```
 turgot/
-├── backend/             # FastAPI service with RAG pipeline
-│   ├── main.py         # FastAPI application and API endpoints
-│   ├── turgot_agent.py # Core RAG agent with LangGraph
-│   ├── search_tool.py  # Vector search implementation
-│   ├── redis_service.py # Session management
-│   └── chroma_db/      # Vector database storage
-├── database/            # Data processing and vector store management
-│   ├── chroma_db/      # ChromaDB vector database
-│   ├── parse_xml_dump.py # XML data processing pipeline
-│   └── download.py     # Data download utilities
-├── frontend/            # Next.js web application
-│   └── src/            # React components and pages
-├── nginx/              # Nginx configuration for production
-├── scripts/            # Deployment and utility scripts
-│   ├── copy-to-server.sh # Server deployment script
-│   ├── deploy.sh       # Production deployment
-│   └── setup-server.sh # Server setup automation
-└── docker-compose.yml  # Multi-service container orchestration
+├── backend/                 # FastAPI service with LangGraph routing + RAG
+│   ├── app/api/main.py      # API endpoints
+│   ├── app/core/graph_agent.py
+│   ├── app/services/retrieval.py
+│   └── tests/               # Thin backend test suite
+├── frontend/                # Next.js web application
+│   ├── src/                 # React components and pages
+│   └── tests/e2e/           # Playwright happy-path test
+├── database/                # Data processing and vector store management
+├── monitoring/              # Prometheus config
+├── nginx/                   # Nginx configuration for production
+├── scripts/                 # Deployment and utility scripts
+└── docker-compose.yml       # Multi-service container orchestration
 ```
 
 ## Technical Stack
@@ -115,17 +110,15 @@ docker-compose up --build
 ./scripts/setup-server.sh
 ```
 
-2. **Deploy to server**:
+2. **Deploy to server manually**:
 
 ```bash
-./scripts/copy-to-server.sh
+./scripts/deploy.sh
 ```
 
-3. **On the server, run**:
+3. **Deploy via CI/CD**:
 
-```bash
-cd ~/turgot && ./scripts/deploy.sh
-```
+Push to `master` to trigger `.github/workflows/deploy.yml` (lint, tests, frozen-lock build, GHCR push, SSH deploy with rollback).
 
 ## Environment Variables
 

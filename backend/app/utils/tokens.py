@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 from loguru import logger
 
@@ -226,6 +226,58 @@ class MessageTrimmer:
         logger.info(f"  Total tokens: {total_tokens}/{self.max_tokens}")
 
         return trimmed_messages, total_tokens
+
+    def trim_messages_with_summary(
+        self,
+        messages: List[Dict[str, Any]],
+        system_messages: List[Dict[str, Any]] = None,
+        context_text: str = "",
+        summarizer: Callable[[List[Dict[str, Any]]], str] | None = None,
+        summary_role: str = "system",
+    ) -> Tuple[List[Dict[str, Any]], int, bool]:
+        """
+        Trim messages and optionally summarize dropped history.
+
+        Returns:
+            Tuple of (trimmed_messages, total_tokens_used, summary_added)
+        """
+        trimmed_messages, total_tokens = self.trim_messages(
+            messages=messages, system_messages=system_messages, context_text=context_text
+        )
+
+        dropped_count = max(0, len(messages) - len(trimmed_messages))
+        if dropped_count == 0 or not summarizer:
+            return trimmed_messages, total_tokens, False
+
+        dropped_messages = messages[:dropped_count]
+        try:
+            summary = summarizer(dropped_messages)
+        except Exception as e:
+            logger.warning(f"Failed to summarize dropped messages: {e}")
+            return trimmed_messages, total_tokens, False
+
+        summary = (summary or "").strip()
+        if not summary:
+            return trimmed_messages, total_tokens, False
+
+        summary_message = {
+            "role": summary_role,
+            "content": (
+                "Résumé des échanges précédents (mémoire conversationnelle):\n"
+                f"{summary}"
+            ),
+        }
+
+        summary_tokens = self.token_counter.estimate_message_tokens(
+            summary_role, summary_message["content"]
+        )
+        # Keep latest context over summary if there is no space left.
+        if total_tokens + summary_tokens > self.max_tokens:
+            logger.info("Skipping memory summary because token budget is exhausted")
+            return trimmed_messages, total_tokens, False
+
+        merged_messages = [summary_message, *trimmed_messages]
+        return merged_messages, total_tokens + summary_tokens, True
 
     def get_token_stats(self, messages: List[Dict[str, Any]]) -> Dict[str, int]:
         """Get detailed token statistics for a list of messages."""

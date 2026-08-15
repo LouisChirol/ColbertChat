@@ -6,13 +6,95 @@ from typing import Optional
 
 import uvicorn
 from app.core.graph_agent import TurgotGraphAgent
+from app.services.document_upload import (
+    MAX_UPLOAD_BYTES,
+    MAX_UPLOAD_PAGES,
+    estimate_pdf_page_count,
+)
+from app.services.feedback_store import FeedbackStore
 from app.services.pdf import PDFService
 from app.services.transcription import TranscriptionService
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException
+from fastapi import (
+    BackgroundTasks,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from loguru import logger
-from pydantic import BaseModel
+from prometheus_client import Counter, Histogram
+from prometheus_fastapi_instrumentator import Instrumentator
+from pydantic import BaseModel, Field
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+# Environment mode: production disables interactive docs and enforces
+# stricter CORS. Set ENVIRONMENT=development locally to relax both.
+ENVIRONMENT = os.getenv("ENVIRONMENT", "production")
+IS_PRODUCTION = ENVIRONMENT == "production"
+
+# Max size (bytes) accepted for audio transcription uploads.
+MAX_AUDIO_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 MB
+
+# Allowed browser origins for the production frontend.
+ALLOWED_ORIGINS = [
+    "https://turgotchat.fr",
+    "https://www.turgotchat.fr",
+]
+
+# Session cache for aggregate usage metrics (process-local only).
+SEEN_SESSIONS: set[str] = set()
+
+SESSIONS_STARTED_TOTAL = Counter(
+    "turgot_sessions_started_total",
+    "Total number of unique sessions seen by this backend process.",
+)
+MESSAGES_TOTAL = Counter(
+    "turgot_messages_total",
+    "Total number of processed chat messages.",
+    ["endpoint"],
+)
+TOKENS_TOTAL = Counter(
+    "turgot_tokens_total",
+    "Approximate token usage by direction.",
+    ["direction"],
+)
+QUERY_LATENCY_SECONDS = Histogram(
+    "turgot_query_latency_seconds",
+    "Query latency in seconds by query type.",
+    ["query_type", "endpoint"],
+)
+
+
+def _estimate_tokens(text: str) -> int:
+    """Use a lightweight approximation for aggregate token metrics."""
+    if not text:
+        return 0
+    return max(1, len(text) // 4)
+
+def get_client_ip(request: Request) -> str:
+    """
+    Resolve the real client IP.
+
+    The backend sits behind nginx (reverse proxy on the same host), so
+    `request.client.host` is always nginx's own
+    loopback connection, not the visitor's IP. Without this, every visitor
+    would share a single rate-limit bucket. Nginx sets X-Forwarded-For, so
+    use its left-most (original client) entry instead.
+    """
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
+limiter = Limiter(key_func=get_client_ip)
 
 # Configure logging
 logger.remove()  # Remove default handler
@@ -35,8 +117,8 @@ logger.add(
 
 # Models
 class QuestionRequest(BaseModel):
-    message: str
-    session_id: str
+    message: str = Field(..., min_length=1, max_length=4000)
+    session_id: str = Field(..., min_length=1, max_length=200)
 
 
 class QuestionResponse(BaseModel):
@@ -45,9 +127,9 @@ class QuestionResponse(BaseModel):
 
 
 class PDFRequest(BaseModel):
-    text: Optional[str] = None
-    title: Optional[str] = None
-    session_id: Optional[str] = None
+    text: Optional[str] = Field(None, max_length=50000)
+    title: Optional[str] = Field(None, max_length=200)
+    session_id: Optional[str] = Field(None, max_length=200)
 
 
 class PDFResponse(BaseModel):
@@ -55,7 +137,7 @@ class PDFResponse(BaseModel):
 
 
 class ClearSessionRequest(BaseModel):
-    session_id: str
+    session_id: str = Field(..., min_length=1, max_length=200)
 
 
 class ClearSessionResponse(BaseModel):
@@ -72,8 +154,28 @@ class TranscriptionResponse(BaseModel):
     success: bool
 
 
+class FeedbackRequest(BaseModel):
+    session_id: str = Field(..., min_length=1, max_length=200)
+    message_id: str = Field(..., min_length=1, max_length=200)
+    value: int = Field(..., ge=-1, le=1)
+    message_excerpt: Optional[str] = Field(None, max_length=500)
+
+
+class FeedbackResponse(BaseModel):
+    success: bool
+    message: str
+
+
+class DocumentUploadResponse(BaseModel):
+    success: bool
+    filename: str
+    pages: int
+    message: str
+
+
 # Global agent instance
 agent = None
+feedback_store = FeedbackStore()
 
 
 @asynccontextmanager
@@ -82,6 +184,7 @@ async def lifespan(app: FastAPI):
     global agent
     logger.info("Starting Turgot backend...")
     agent = TurgotGraphAgent()
+    Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
     logger.info("Turgot agent initialized")
     yield
     # Shutdown
@@ -94,14 +197,21 @@ app = FastAPI(
     description="RAG-powered chatbot for French public administration information",
     version="1.0.0",
     lifespan=lifespan,
+    docs_url=None if IS_PRODUCTION else "/docs",
+    redoc_url=None if IS_PRODUCTION else "/redoc",
+    openapi_url=None if IS_PRODUCTION else "/openapi.json",
 )
+
+# Rate limiting: protects paid Mistral/Voxtral calls from abuse.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=["*"] if not IS_PRODUCTION else ALLOWED_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -113,12 +223,13 @@ async def root():
 
 
 @app.post("/chat", response_model=QuestionResponse)
-async def chat(request: QuestionRequest):
+@limiter.limit("15/minute")
+async def chat(request: Request, body: QuestionRequest):
     """
     Process a chat message and return Turgot's response.
 
     Args:
-        request: Contains the user message and session ID
+        body: Contains the user message and session ID
 
     Returns:
         The response from Turgot including the answer and session ID
@@ -127,16 +238,28 @@ async def chat(request: QuestionRequest):
         raise HTTPException(status_code=503, detail="Agent not initialized")
 
     try:
-        logger.info(f"Processing question from session {request.session_id}")
+        logger.info(f"Processing question from session {body.session_id}")
         start_time = time.time()
+        MESSAGES_TOTAL.labels(endpoint="chat").inc()
+        if body.session_id not in SEEN_SESSIONS:
+            SESSIONS_STARTED_TOTAL.inc()
+            SEEN_SESSIONS.add(body.session_id)
+        TOKENS_TOTAL.labels(direction="input").inc(_estimate_tokens(body.message))
 
         # Get response from agent
-        answer = agent.ask_turgot(request.message, request.session_id)
+        result = agent.ask_turgot_with_metadata(body.message, body.session_id)
+        answer = result["answer"]
 
         end_time = time.time()
+        query_type = result.get("query_type", "unknown")
+        QUERY_LATENCY_SECONDS.labels(query_type=query_type, endpoint="chat").observe(
+            end_time - start_time
+        )
+        output_tokens = result.get("total_tokens", 0) or _estimate_tokens(answer)
+        TOKENS_TOTAL.labels(direction="output").inc(output_tokens)
         logger.info(f"Question processed in {end_time - start_time:.2f} seconds")
 
-        return QuestionResponse(answer=answer, session_id=request.session_id)
+        return QuestionResponse(answer=answer, session_id=body.session_id)
 
     except Exception as e:
         logger.error(f"Error processing question: {str(e)}")
@@ -147,16 +270,25 @@ async def chat(request: QuestionRequest):
 
 
 @app.post("/chat-stream")
-async def chat_stream(request: QuestionRequest):
+@limiter.limit("15/minute")
+async def chat_stream(request: Request, body: QuestionRequest):
     if not agent:
         raise HTTPException(status_code=503, detail="Agent not initialized")
 
-    logger.info(f"Starting stream for session {request.session_id}")
+    logger.info(f"Starting stream for session {body.session_id}")
     start_time = time.time()
+    MESSAGES_TOTAL.labels(endpoint="chat_stream").inc()
+    if body.session_id not in SEEN_SESSIONS:
+        SESSIONS_STARTED_TOTAL.inc()
+        SEEN_SESSIONS.add(body.session_id)
+    TOKENS_TOTAL.labels(direction="input").inc(_estimate_tokens(body.message))
 
     def event_generator():
+        accumulated_tokens = 0
         try:
-            for item in agent.stream_answer(request.message, request.session_id):
+            for item in agent.stream_answer(body.message, body.session_id):
+                if item.get("type") == "chunk":
+                    accumulated_tokens += _estimate_tokens(item.get("content", ""))
                 yield f"data: {json.dumps(item)}\n\n"
         except Exception as e:
             logger.error(f"Streaming error: {e}")
@@ -164,20 +296,112 @@ async def chat_stream(request: QuestionRequest):
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
         finally:
             duration = time.time() - start_time
+            QUERY_LATENCY_SECONDS.labels(
+                query_type="stream", endpoint="chat_stream"
+            ).observe(duration)
+            if accumulated_tokens > 0:
+                TOKENS_TOTAL.labels(direction="output").inc(accumulated_tokens)
             logger.info(
-                f"Stream finished in {duration:.2f} seconds for session {request.session_id}"
+                f"Stream finished in {duration:.2f} seconds for session {body.session_id}"
             )
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
+@app.post("/feedback", response_model=FeedbackResponse)
+@limiter.limit("30/minute")
+async def submit_feedback(request: Request, body: FeedbackRequest):
+    """Persist thumbs up/down feedback for assistant messages."""
+    if body.value not in (-1, 1):
+        raise HTTPException(status_code=422, detail="value must be -1 or 1")
+
+    try:
+        feedback_store.save_feedback(
+            session_id=body.session_id,
+            message_id=body.message_id,
+            value=body.value,
+            message_excerpt=body.message_excerpt or "",
+        )
+        return FeedbackResponse(success=True, message="Feedback enregistré")
+    except Exception as e:
+        logger.error(f"Error storing feedback: {str(e)}")
+        logger.exception("Full traceback:")
+        raise HTTPException(
+            status_code=500, detail="Erreur lors de l'enregistrement du feedback"
+        )
+
+
+@app.post("/document-upload", response_model=DocumentUploadResponse)
+@limiter.limit("2/minute")
+async def document_upload(
+    request: Request,
+    consent_confirmed: bool = Form(...),
+    document: UploadFile = File(...),
+):
+    """
+    Phase 4 skeleton endpoint:
+    - strict size/page limits
+    - in-memory processing only
+    - no persistent storage
+    """
+    try:
+        if not consent_confirmed:
+            raise HTTPException(
+                status_code=400,
+                detail="Consentement obligatoire avant l'envoi d'un document",
+            )
+
+        filename = document.filename or "document.pdf"
+        if not filename.lower().endswith(".pdf"):
+            raise HTTPException(
+                status_code=415, detail="Seuls les fichiers PDF sont acceptés"
+            )
+
+        payload = await document.read()
+        if len(payload) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Fichier trop volumineux (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)",
+            )
+
+        if not payload.startswith(b"%PDF"):
+            raise HTTPException(status_code=400, detail="Fichier PDF invalide")
+
+        page_count = estimate_pdf_page_count(payload)
+        if page_count > MAX_UPLOAD_PAGES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Document trop long (max {MAX_UPLOAD_PAGES} pages)",
+            )
+
+        # Intentionally no disk storage and no model call yet (skeleton scope).
+        return DocumentUploadResponse(
+            success=True,
+            filename=filename,
+            pages=page_count,
+            message=(
+                "Document validé pour traitement en mémoire uniquement. "
+                "Le pipeline d'analyse sera ajouté dans une prochaine phase."
+            ),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error during document upload: {str(e)}")
+        logger.exception("Full traceback:")
+        raise HTTPException(status_code=500, detail="Erreur lors du traitement du document")
+
+
 @app.post("/generate-pdf", response_model=PDFResponse)
-async def generate_pdf(request: PDFRequest, background_tasks: BackgroundTasks):
+@limiter.limit("10/minute")
+async def generate_pdf(
+    request: Request, body: PDFRequest, background_tasks: BackgroundTasks
+):
     """
     Generate a PDF from markdown text or chat session.
 
     Args:
-        request: Contains either text content and optional title, or session_id
+        body: Contains either text content and optional title, or session_id
         background_tasks: FastAPI background tasks
 
     Returns:
@@ -187,15 +411,15 @@ async def generate_pdf(request: PDFRequest, background_tasks: BackgroundTasks):
         pdf_service = PDFService()
 
         # Check if this is a session-based request
-        if request.session_id and not request.text:
+        if body.session_id and not body.text:
             # Generate PDF from chat session
             from app.services.pdf import create_chat_pdf
 
-            pdf_path = create_chat_pdf(request.session_id)
-        elif request.text:
+            pdf_path = create_chat_pdf(body.session_id)
+        elif body.text:
             # Generate PDF from markdown text
             pdf_path = pdf_service.create_pdf_from_markdown(
-                markdown_content=request.text, title=request.title or "Document Turgot"
+                markdown_content=body.text, title=body.title or "Document Turgot"
             )
         else:
             raise HTTPException(
@@ -236,8 +460,11 @@ async def get_pdf(filename: str):
         The PDF file content
     """
     try:
+        # Defense in depth: strip any directory components even though
+        # FastAPI's default path converter already rejects raw slashes.
+        safe_filename = os.path.basename(filename)
         pdf_service = PDFService()
-        return pdf_service.serve_pdf(filename)
+        return pdf_service.serve_pdf(safe_filename)
 
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="PDF not found")
@@ -247,12 +474,13 @@ async def get_pdf(filename: str):
 
 
 @app.post("/clear-session", response_model=ClearSessionResponse)
-async def clear_session(request: ClearSessionRequest):
+@limiter.limit("20/minute")
+async def clear_session(request: Request, body: ClearSessionRequest):
     """
     Clear the chat history for a specific session.
 
     Args:
-        request: Contains the session ID to clear
+        body: Contains the session ID to clear
 
     Returns:
         Success status and message
@@ -261,13 +489,13 @@ async def clear_session(request: ClearSessionRequest):
         raise HTTPException(status_code=503, detail="Agent not initialized")
 
     try:
-        logger.info(f"Clearing session history for session {request.session_id}")
+        logger.info(f"Clearing session history for session {body.session_id}")
 
         # Clear the session history using the Redis service
-        agent.redis_service.clear_session_history(request.session_id)
+        agent.redis_service.clear_session_history(body.session_id)
 
         return ClearSessionResponse(
-            success=True, message=f"Session {request.session_id} cleared successfully"
+            success=True, message=f"Session {body.session_id} cleared successfully"
         )
 
     except Exception as e:
@@ -279,7 +507,8 @@ async def clear_session(request: ClearSessionRequest):
 
 
 @app.post("/transcribe", response_model=TranscriptionResponse)
-async def transcribe_audio(audio: bytes = File(...)):
+@limiter.limit("10/minute")
+async def transcribe_audio(request: Request, audio: bytes = File(...)):
     """
     Transcribe audio to text using Voxtral API.
 
@@ -289,6 +518,12 @@ async def transcribe_audio(audio: bytes = File(...)):
     Returns:
         Transcribed text
     """
+    if len(audio) > MAX_AUDIO_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Audio file too large (max {MAX_AUDIO_UPLOAD_BYTES // (1024 * 1024)} MB)",
+        )
+
     try:
         logger.info("Starting audio transcription")
 

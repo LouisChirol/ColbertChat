@@ -62,6 +62,41 @@ The system processes official French government data from:
 - **Schema Definitions**: XML schema for proper data parsing
 - **Update Frequency**: Regular updates to maintain data freshness
 
+### BOFiP (tax doctrine)
+
+- **API source**: [BOFiP publications en vigueur](https://data.economie.gouv.fr/explore/dataset/bofip-vigueur/) (~9k in-force documents)
+- **Format**: JSON per record (`contenu`, `identifiant_juridique`, `permalien`, `serie`)
+- **Chroma collection**: `bofip` (separate from `service_public`)
+- **Update frequency**: Weekly (re-download + content-hash delta)
+
+#### BOFiP pipeline
+
+```bash
+cd database
+
+# 1. Download (~9k records from data.economie.gouv.fr API)
+uv run python -m sources.bofip.download
+
+# 2. Validate relevance without embeddings
+uv run python -m sources.bofip.probe
+
+# 3. Estimate embedding cost (~$1.9 for full corpus at mistral-embed rates)
+uv run python -m sources.bofip.ingest --estimate-only
+
+# 4. Pilot embed (first 100 docs) or full ingest
+uv run python -m sources.bofip.ingest --max-documents 100
+uv run python -m sources.bofip.ingest
+
+# Or combined:
+uv run python -m sources.bofip.run_update --skip-embed   # download only
+uv run python -m sources.bofip.run_update --max-documents 200 --max-cost-usd 0.50
+
+# Long-running full embed in tmux (resumable):
+./scripts/run_bofip_ingest_tmux.sh
+# Attach: tmux attach -t turgot-bofip
+# Log:    tail -f /tmp/bofip_ingest.log
+```
+
 ### Data Structure
 
 The processed data includes:

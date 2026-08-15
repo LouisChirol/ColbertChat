@@ -11,11 +11,15 @@ services:
       - backend
 
   backend:
+    image: ${BACKEND_IMAGE:-turgot-backend:local}
     build: ./backend
-    network_mode: "host"
+    pull_policy: always
+    ports:
+      - "127.0.0.1:8000:8000"
     environment:
       - MISTRAL_API_KEY=${MISTRAL_API_KEY}
-      - REDIS_URL=redis://localhost:6379
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
+      - ENVIRONMENT=${ENVIRONMENT:-development}
     volumes:
       - ./backend/logs:/app/logs
       - ./database/chroma_db:/app/database/chroma_db
@@ -26,9 +30,41 @@ services:
 
   redis:
     image: redis:alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD}
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     restart: unless-stopped 
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    profiles:
+      - monitoring
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards/json:ro
+    depends_on:
+      - prometheus
+    profiles:
+      - monitoring
+    restart: unless-stopped
 
   db_updater:
     build: ./database
@@ -42,3 +78,7 @@ services:
       - maintenance
     # Do not auto-run; we'll call it on-demand via cron
     restart: "no"
+
+volumes:
+  prometheus_data:
+  grafana_data:

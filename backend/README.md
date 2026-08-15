@@ -17,7 +17,7 @@ backend/
 ├── logs/                  # Application logs
 ├── pyproject.toml         # Dependencies and project config
 ├── Dockerfile             # Container configuration
-└── run.py                 # Development runner
+└── tests/                 # Thin regression test suite
 ```
 
 ## 🚀 Quick Start
@@ -38,7 +38,7 @@ backend/
 
 3. **Run the application:**
    ```bash
-   python run.py
+   uv run python -m app.api.main
    ```
 
    The API will be available at `http://localhost:8000`
@@ -53,7 +53,7 @@ docker run -p 8000:8000 --env-file .env turgot-backend
 ## 📁 Package Structure
 
 ### `app/core/`
-- **`agent.py`**: Main TurgotAgent class with RAG pipeline and token management
+- **`graph_agent.py`**: Main LangGraph-based Turgot agent with routing and RAG pipeline
 - **`prompts.py`**: System prompts for classification and response generation
 
 ### `app/services/`
@@ -63,7 +63,6 @@ docker run -p 8000:8000 --env-file .env turgot-backend
 
 ### `app/utils/`
 - **`tokens.py`**: Token counting and message trimming utilities
-- **`search.py`**: Web search utilities for extended functionality
 
 ### `app/api/`
 - **`main.py`**: FastAPI application with endpoints for chat and PDF generation
@@ -127,8 +126,8 @@ Generate a PDF from markdown content.
 }
 ```
 
-### `GET /health`
-Health check endpoint with detailed status.
+### `GET /`
+Health check endpoint.
 
 ## 🔧 Development
 
@@ -229,4 +228,4 @@ Structured logging with Loguru:
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the CC BY-NC 4.0 License - see the root LICENSE file for details.

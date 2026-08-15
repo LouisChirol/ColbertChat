@@ -7,11 +7,12 @@ import ConfirmationModal from '@/components/ConfirmationModal';
 import DataSourceFilter, { DataSourceType } from '@/components/DataSourceFilter';
 import { DarkModeButton, DisclaimerModal, InfoButton } from '@/components/Disclaimer';
 import SupportButton from '@/components/SupportButton';
-import { clearSession, sendMessageStream } from '@/services/api';
+import { clearSession, sendMessageStream, submitFeedback, uploadDocument } from '@/services/api';
 import { getSessionId } from '@/services/session';
 import { Bars3Icon } from '@heroicons/react/24/outline';
 import Image from 'next/image';
-import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 const WELCOME_MESSAGE = `Bonjour ! Je suis Turgot, votre assistant pour les démarches administratives françaises. 🏛️
 
@@ -27,8 +28,27 @@ Utilisez le filtre en haut à droite pour afficher uniquement ce qui vous intér
 
 Comment puis-je vous aider aujourd\'hui ?`;
 
+type Source = {
+  url: string;
+  title: string;
+  excerpt: string;
+  data_source?: string;
+};
+
+type ChatMessage = {
+  id: string;
+  content: string;
+  isUser: boolean;
+  isStreaming?: boolean;
+  sources?: Source[];
+  secondarySources?: Source[];
+  isError?: boolean;
+  feedback?: 1 | -1 | null;
+};
+
 export default function Home() {
-  const [messages, setMessages] = useState([
+  const t = useTranslations('ui');
+  const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: '1',
       content: WELCOME_MESSAGE,
@@ -42,6 +62,10 @@ export default function Home() {
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [isDisclaimerOpen, setIsDisclaimerOpen] = useState(false);
   const [dataSourceFilter, setDataSourceFilter] = useState<DataSourceType>('all');
+  const [uploadStatus, setUploadStatus] = useState<string>('');
+  const [isUploadConsentOpen, setIsUploadConsentOpen] = useState(false);
+  const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
 
   // Clear session history on page load/refresh for privacy
   useEffect(() => {
@@ -104,6 +128,7 @@ export default function Home() {
       id: Date.now().toString(),
       content: message,
       isUser: true,
+      feedback: null,
     };
 
     setMessages((prev) => [...prev, newMessage]);
@@ -113,7 +138,7 @@ export default function Home() {
     try {
       const assistantId = (Date.now() + 1).toString();
       // Append an empty assistant message that will be filled progressively
-      setMessages((prev) => [...prev, { id: assistantId, content: '', isUser: false, isStreaming: true } as any]);
+      setMessages((prev) => [...prev, { id: assistantId, content: '', isUser: false, isStreaming: true, feedback: null }]);
 
       await sendMessageStream(
         message,
@@ -121,7 +146,7 @@ export default function Home() {
           setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: (m.content || '') + delta } : m)));
         },
         (sources) => {
-          setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, sources } as any : m)));
+          setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, sources } : m)));
         }
       );
       // Mark message as no longer streaming
@@ -237,6 +262,43 @@ export default function Home() {
     window.open('https://github.com/LouisChirol/TurgotChat', '_blank');
   };
 
+  const handleFeedback = async (messageId: string, value: 1 | -1) => {
+    const targetMessage = messages.find((message) => message.id === messageId);
+    setMessages((prev) => prev.map((message) => (message.id === messageId ? { ...message, feedback: value } : message)));
+    try {
+      await submitFeedback(messageId, value, targetMessage?.content.slice(0, 300) || '');
+    } catch (error) {
+      console.error('Error submitting feedback:', error);
+    }
+  };
+
+  const handleUploadClick = () => {
+    uploadInputRef.current?.click();
+  };
+
+  const handleUploadFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setPendingUploadFile(file);
+    setIsUploadConsentOpen(true);
+    event.target.value = '';
+  };
+
+  const handleConfirmUpload = async () => {
+    if (!pendingUploadFile) return;
+    try {
+      const response = await uploadDocument(pendingUploadFile, true);
+      setUploadStatus(response.message);
+    } catch (error) {
+      console.error('Error uploading document:', error);
+      const message = error instanceof Error ? error.message : 'Erreur lors du téléversement';
+      setUploadStatus(message);
+    } finally {
+      setPendingUploadFile(null);
+      setIsUploadConsentOpen(false);
+    }
+  };
+
   return (
     <main className="flex flex-col h-[100dvh]">
       <header className="shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 transition-colors duration-200">
@@ -259,7 +321,7 @@ export default function Home() {
                     <div className="flex-1 bg-red-600"></div>
                   </div>
                 </div>
-                <p className="text-sm text-gray-600 dark:text-gray-300">Votre assistant administratif</p>
+                <p className="text-sm text-gray-600 dark:text-gray-300">{t('assistantTagline')}</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -273,7 +335,7 @@ export default function Home() {
               <button
                 onClick={() => setIsDrawerOpen(true)}
                 className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                aria-label="Ouvrir le menu"
+                aria-label={t('openMenu')}
               >
                 <Bars3Icon className="h-7 w-7 text-gray-700 dark:text-gray-200" />
               </button>
@@ -292,7 +354,7 @@ export default function Home() {
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-4xl mx-auto px-4 py-4">
-            <ChatInterface messages={filteredMessages} isLoading={false} />
+            <ChatInterface messages={filteredMessages} isLoading={false} onFeedback={handleFeedback} />
           </div>
         </div>
 
@@ -305,7 +367,34 @@ export default function Home() {
             <div className="flex-1 bg-red-600"></div>
           </div>
           <div className="max-w-4xl mx-auto px-4 py-4">
-            <ChatInput onSendMessage={handleSendMessage} isLoading={isStreaming} />
+            <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
+              {t('uploadConsentWarning')}
+            </div>
+            <div className="mb-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleUploadClick}
+                className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              >
+                {t('uploadButton')}
+              </button>
+              {uploadStatus && <p className="text-xs text-gray-700 dark:text-gray-300">{uploadStatus}</p>}
+              <input
+                ref={uploadInputRef}
+                type="file"
+                accept="application/pdf"
+                className="hidden"
+                onChange={handleUploadFile}
+              />
+            </div>
+            <ChatInput
+              onSendMessage={handleSendMessage}
+              isLoading={isStreaming}
+              placeholder={t('chatPlaceholder')}
+              sendLabel={t('sendMessage')}
+              micStartLabel={t('micStart')}
+              micStopLabel={t('micStop')}
+            />
           </div>
         </div>
       </div>
@@ -327,16 +416,48 @@ export default function Home() {
         isOpen={isResetModalOpen}
         onClose={() => setIsResetModalOpen(false)}
         onConfirm={handleReset}
-        title="Réinitialiser la conversation"
-        message="Êtes-vous sûr de vouloir effacer toute l'historique de la conversation ? Cette action ne peut pas être annulée."
-        confirmText="Réinitialiser"
-        cancelText="Annuler"
+        title={t('resetTitle')}
+        message={t('resetMessage')}
+        confirmText={t('resetConfirm')}
+        cancelText={t('cancel')}
       />
 
       <DisclaimerModal
         isOpen={isDisclaimerOpen}
         onClose={() => setIsDisclaimerOpen(false)}
       />
+
+      {isUploadConsentOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="upload-consent-title">
+          <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl dark:bg-gray-900">
+            <h2 id="upload-consent-title" className="mb-3 text-lg font-semibold text-gray-900 dark:text-gray-100">
+              {t('consentTitle')}
+            </h2>
+            <p className="mb-5 text-sm text-gray-700 dark:text-gray-300">
+              {t('consentMessage')}
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingUploadFile(null);
+                  setIsUploadConsentOpen(false);
+                }}
+                className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600"
+              >
+                {t('cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmUpload}
+                className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              >
+                {t('consentConfirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 } 

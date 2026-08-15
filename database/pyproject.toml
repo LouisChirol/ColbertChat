@@ -12,6 +12,8 @@ dependencies = [
     "tqdm>=4.66.1",
     "python-dotenv>=1.0.0",
     "mistralai>=0.0.12",
+    "requests>=2.31.0",
+    "backoff>=2.2.1",
     "ipykernel>=6.29.5",
     "loguru>=0.7.3",
 ]

@@ -288,6 +288,7 @@ name = "database"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "backoff" },
     { name = "chromadb" },
     { name = "ipykernel" },
     { name = "langchain" },
@@ -296,11 +297,13 @@ dependencies = [
     { name = "loguru" },
     { name = "mistralai" },
     { name = "python-dotenv" },
+    { name = "requests" },
     { name = "tqdm" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "backoff", specifier = ">=2.2.1" },
     { name = "chromadb", specifier = ">=0.4.22" },
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "langchain", specifier = ">=0.1.0" },
@@ -309,6 +312,7 @@ requires-dist = [
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "mistralai", specifier = ">=0.0.12" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
+    { name = "requests", specifier = ">=2.31.0" },
     { name = "tqdm", specifier = ">=4.66.1" },
 ]
 

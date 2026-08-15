@@ -1,4 +1,3 @@
-import asyncio
 import os
 import tempfile
 import time
@@ -255,7 +254,9 @@ class PDFService:
     
     def serve_pdf(self, filename: str) -> FileResponse:
         """Serve a PDF file."""
-        pdf_path = self.temp_dir / filename
+        # Defense in depth against path traversal: only allow a bare filename.
+        safe_filename = Path(filename).name
+        pdf_path = self.temp_dir / safe_filename
         
         if not pdf_path.exists():
             raise FileNotFoundError(f"PDF file not found: {filename}")

@@ -9,6 +9,7 @@ interface Source {
   url: string;
   title: string;
   excerpt: string;
+  data_source?: string;
 }
 
 interface ChatResponse {
@@ -43,7 +44,7 @@ export const sendMessage = async (message: string): Promise<ChatResponse> => {
 export const sendMessageStream = async (
   message: string,
   onChunk: (text: string) => void,
-  onSources?: (sources: Array<{ url: string; title: string; excerpt: string }>) => void
+  onSources?: (sources: Source[]) => void
 ): Promise<void> => {
   const sessionId = getSessionId();
   const response = await fetch(`${API_URL}/chat-stream`, {
@@ -89,7 +90,14 @@ export const sendMessageStream = async (
       if (payload.type === 'chunk' && typeof payload.content === 'string') {
         onChunk(payload.content);
       } else if (payload.type === 'sources' && Array.isArray(payload.sources)) {
-        const mapped = payload.sources.map((url: string) => ({ url, title: url, excerpt: '' }));
+        const mapped = payload.sources
+          .filter((source: any) => source && typeof source.url === 'string')
+          .map((source: any) => ({
+            url: source.url,
+            title: source.title || source.url,
+            excerpt: source.excerpt || '',
+            data_source: source.data_source || 'other',
+          }));
         onSources && onSources(mapped);
       } else if (payload.type === 'done') {
         return;
@@ -142,3 +150,48 @@ export const transcribeAudio = async (audioBlob: Blob): Promise<string> => {
   const data = await response.json();
   return data.text;
 }; 
+
+export const submitFeedback = async (
+  messageId: string,
+  value: 1 | -1,
+  messageExcerpt: string
+): Promise<void> => {
+  const sessionId = getSessionId();
+  const response = await fetch(`${API_URL}/feedback`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      session_id: sessionId,
+      message_id: messageId,
+      value,
+      message_excerpt: messageExcerpt.slice(0, 500),
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to store feedback");
+  }
+};
+
+export const uploadDocument = async (
+  file: File,
+  consentConfirmed: boolean
+): Promise<{ filename: string; pages: number; message: string }> => {
+  const formData = new FormData();
+  formData.append("document", file);
+  formData.append("consent_confirmed", String(consentConfirmed));
+
+  const response = await fetch(`${API_URL}/document-upload`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Upload failed");
+  }
+
+  return response.json();
+};

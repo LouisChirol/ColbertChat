@@ -8,9 +8,21 @@ interface ChatInputProps {
   onSendMessage: (content: string) => void;
   disabled?: boolean;
   isLoading?: boolean;
+  placeholder?: string;
+  sendLabel?: string;
+  micStartLabel?: string;
+  micStopLabel?: string;
 }
 
-const ChatInput = ({ onSendMessage, disabled = false, isLoading = false }: ChatInputProps) => {
+const ChatInput = ({
+  onSendMessage,
+  disabled = false,
+  isLoading = false,
+  placeholder = 'Posez votre question...',
+  sendLabel = 'Envoyer le message',
+  micStartLabel = "Commencer la dictée vocale",
+  micStopLabel = "Arrêter l'enregistrement",
+}: ChatInputProps) => {
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const {
@@ -76,17 +88,22 @@ const ChatInput = ({ onSendMessage, disabled = false, isLoading = false }: ChatI
   return (
     <form onSubmit={handleSubmit} className="chat-input bg-white dark:bg-gray-800 flex items-center gap-2 p-4 border-t transition-colors duration-200">
       <div className="flex-1">
+        <label htmlFor="chat-input-textarea" className="sr-only">
+          Zone de saisie du message
+        </label>
         <textarea
+          id="chat-input-textarea"
           ref={textareaRef}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Posez votre question..."
+          placeholder={placeholder}
           className={`w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none min-h-[44px] bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 transition-colors duration-200 ${
             disabled || isLoading ? 'bg-gray-100 dark:bg-gray-600 cursor-not-allowed' : ''
           }`}
           disabled={disabled || isLoading}
           rows={1}
+          aria-multiline="true"
           onFocus={() => {
             setTimeout(() => {
               textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -109,7 +126,7 @@ const ChatInput = ({ onSendMessage, disabled = false, isLoading = false }: ChatI
           disabled || isLoading ? 'opacity-50 cursor-not-allowed' : ''
         }`}
         disabled={disabled || isLoading || isTranscribing}
-        aria-label={isRecording ? "Arrêter l'enregistrement" : "Commencer la dictée vocale"}
+        aria-label={isRecording ? micStopLabel : micStartLabel}
       >
         {isTranscribing ? (
           <Loader2 className="h-5 w-5 animate-spin" />
@@ -119,7 +136,7 @@ const ChatInput = ({ onSendMessage, disabled = false, isLoading = false }: ChatI
           <Mic className="h-5 w-5" />
         )}
         <span className="absolute left-1/2 -translate-x-1/2 top-full mt-2 bg-gray-900 dark:bg-gray-700 text-white text-sm py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-          {isRecording ? "Arrêter l'enregistrement" : isTranscribing ? "Transcription en cours..." : "Dictée vocale"}
+          {isRecording ? micStopLabel : isTranscribing ? "Transcription en cours..." : "Dictée vocale"}
         </span>
       </button>
       <button
@@ -128,11 +145,11 @@ const ChatInput = ({ onSendMessage, disabled = false, isLoading = false }: ChatI
           disabled || isLoading ? 'opacity-50 cursor-not-allowed' : ''
         }`}
         disabled={disabled || isLoading}
-        aria-label="Envoyer le message"
+        aria-label={sendLabel}
       >
         <Send className="h-5 w-5" />
         <span className="absolute left-1/2 -translate-x-1/2 top-full mt-2 bg-gray-900 dark:bg-gray-700 text-white text-sm py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-          Envoyer le message
+          {sendLabel}
         </span>
       </button>
     </form>

@@ -25,6 +25,8 @@ class RedisService:
         self.redis_client = redis.Redis(
             host=redis_host,
             port=redis_port,
+            username=redis_url.username or None,
+            password=redis_url.password or None,
             db=0,
             decode_responses=True,
         )

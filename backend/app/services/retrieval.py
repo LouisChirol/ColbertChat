@@ -1,4 +1,5 @@
 import os
+import time
 from pathlib import Path
 
 from langchain_chroma import Chroma
@@ -6,6 +7,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_mistralai import ChatMistralAI, MistralAIEmbeddings
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
+
+try:
+    from sentence_transformers import CrossEncoder
+except ImportError:  # pragma: no cover - guarded at runtime
+    CrossEncoder = None
 
 # Constants
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
@@ -26,6 +32,15 @@ else:
     XML_FILES_PATH = WORKSPACE_ROOT / "database"
 
 logger.info(f"Using database path: {CHROMA_DB_PATH}")
+
+RERANKER_MODEL = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-base")
+RERANKER_BATCH_SIZE = int(os.getenv("RERANKER_BATCH_SIZE", "16"))
+RERANKER_MAX_CHARS = int(os.getenv("RERANKER_MAX_CHARS", "2200"))
+RERANKER_ENABLED = os.getenv("RERANKER_ENABLED", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+}
 
 
 class DocumentRetrieved(BaseModel):
@@ -77,6 +92,25 @@ class DocumentRetriever:
         logger.info(
             f"Initialized Chroma DB with {self.doc_count} documents at {CHROMA_DB_PATH}"
         )
+
+        self.reranker = None
+        if not RERANKER_ENABLED:
+            logger.info("Cross-encoder reranking disabled by RERANKER_ENABLED")
+        elif CrossEncoder is None:
+            logger.warning(
+                "sentence-transformers not installed; reranking disabled at runtime"
+            )
+        else:
+            try:
+                model_load_start = time.perf_counter()
+                self.reranker = CrossEncoder(RERANKER_MODEL, device="cpu")
+                model_load_ms = (time.perf_counter() - model_load_start) * 1000
+                logger.info(
+                    f"Loaded cross-encoder reranker {RERANKER_MODEL} on CPU in {model_load_ms:.0f}ms"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to initialize reranker {RERANKER_MODEL}: {e}")
+                self.reranker = None
 
     def generate_search_query(
         self, question: str, history: list[dict]
@@ -135,7 +169,7 @@ class DocumentRetriever:
     def retrieve_documents(
         self, query: str, top_k: int = 20, max_docs: int = 5
     ) -> list[DocumentRetrieved]:
-        """Retrieve documents from the vector store and deduplicate by ID."""
+        """Retrieve docs, rerank candidates, then keep the best max_docs."""
         docs = self.vector_store.similarity_search(query, k=top_k)
         retrieved_docs = [
             DocumentRetrieved(
@@ -148,9 +182,49 @@ class DocumentRetriever:
             for doc in docs
         ]
         retrieved_docs = self.merge_documents(retrieved_docs)
+        retrieved_docs = self._rerank_documents(
+            query=query, docs=retrieved_docs, max_docs=max_docs
+        )
 
         logger.info(
-            f"Retrieved {len(retrieved_docs)} unique documents from {len(docs)} total matches; cutting to {max_docs}"
+            f"Retrieved {len(retrieved_docs)} unique documents from {len(docs)} total matches; returning top {max_docs}"
         )
         retrieved_docs = retrieved_docs[:max_docs]
         return retrieved_docs
+
+    def _rerank_documents(
+        self, query: str, docs: list[DocumentRetrieved], max_docs: int
+    ) -> list[DocumentRetrieved]:
+        """Rerank dense candidates with a self-hosted cross-encoder on CPU."""
+        if len(docs) <= 1:
+            return docs
+
+        if self.reranker is None:
+            logger.debug("Reranker unavailable, keeping dense retrieval order")
+            return docs
+
+        pairs = [
+            [query, (doc.page_content or "")[:RERANKER_MAX_CHARS]]
+            for doc in docs
+        ]
+
+        try:
+            rerank_start = time.perf_counter()
+            scores = self.reranker.predict(
+                pairs,
+                batch_size=RERANKER_BATCH_SIZE,
+                show_progress_bar=False,
+            )
+            rerank_ms = (time.perf_counter() - rerank_start) * 1000
+
+            scored_docs = sorted(
+                zip(docs, scores), key=lambda pair: float(pair[1]), reverse=True
+            )
+            top_score = float(scored_docs[0][1]) if scored_docs else 0.0
+            logger.info(
+                f"Reranked {len(docs)} docs with {RERANKER_MODEL} in {rerank_ms:.0f}ms; top score={top_score:.4f}; keeping {max_docs}"
+            )
+            return [doc for doc, _ in scored_docs]
+        except Exception as e:
+            logger.warning(f"Reranking failed, using dense ranking fallback: {e}")
+            return docs

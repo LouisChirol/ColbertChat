@@ -9,18 +9,32 @@ interface Source {
   url: string;
   title: string;
   excerpt: string;
+  data_source?: string;
 }
 
 interface MessageProps {
+  messageId: string;
   role: 'user' | 'assistant';
   content: string;
   sources?: Source[];
   secondarySources?: Source[];
   isError?: boolean;
   isStreaming?: boolean;
+  feedback?: 1 | -1 | null;
+  onFeedback?: (messageId: string, value: 1 | -1) => void;
 }
 
-const Message = ({ role, content, sources = [], secondarySources = [], isError = false, isStreaming = false }: MessageProps) => {
+const Message = ({
+  messageId,
+  role,
+  content,
+  sources = [],
+  secondarySources = [],
+  isError = false,
+  isStreaming = false,
+  feedback = null,
+  onFeedback,
+}: MessageProps) => {
   const isUser = role === 'user';
 
   const getAvatarSrc = () => {
@@ -87,8 +101,22 @@ const Message = ({ role, content, sources = [], secondarySources = [], isError =
   const allSources = [...sources, ...extractSourcesFromContent(content)];
   const { vosdroitsSources, entreprendreSources, otherSources } = categorizeSources(allSources);
 
+  const getSourceTypeLabel = (source: Source) => {
+    if (source.url.includes('vosdroits') || source.data_source === 'vosdroits') return 'Particuliers';
+    if (source.url.includes('entreprendre') || source.data_source === 'entreprendre') return 'Professionnels';
+    return 'Officiel';
+  };
+
+  const getSourceHost = (url: string) => {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return url;
+    }
+  };
+
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} gap-3`}>
+    <article className={`flex ${isUser ? 'justify-end' : 'justify-start'} gap-3`} aria-live={!isUser && isStreaming ? 'polite' : undefined}>
       {!isUser && (
         <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0">
           <Image
@@ -101,7 +129,7 @@ const Message = ({ role, content, sources = [], secondarySources = [], isError =
         </div>
       )}
       <div
-        className={`max-w-[80%] rounded-lg p-4 break-words ${
+        className={`max-w-[80%] rounded-lg p-4 break-words focus-within:ring-2 focus-within:ring-blue-500 ${
           isUser
             ? 'bg-blue-500 text-white dark:bg-blue-600'
             : isError || content.includes("Désolé, une erreur est survenue. Veuillez réessayer.")
@@ -172,7 +200,7 @@ const Message = ({ role, content, sources = [], secondarySources = [], isError =
         {(vosdroitsSources.length > 0 || entreprendreSources.length > 0 || otherSources.length > 0 || secondarySources.length > 0) && (
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
             <details className="group">
-              <summary className="flex items-center gap-2 cursor-pointer text-sm font-semibold text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+              <summary className="flex items-center gap-2 cursor-pointer text-sm font-semibold text-gray-900 dark:text-gray-100 hover:text-blue-700 dark:hover:text-blue-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded">
                 <svg
                   className="w-4 h-4 transform group-open:rotate-90 transition-transform"
                   fill="none"
@@ -184,124 +212,78 @@ const Message = ({ role, content, sources = [], secondarySources = [], isError =
                 Sources ({vosdroitsSources.length + entreprendreSources.length + otherSources.length + secondarySources.length})
               </summary>
               
-              <div className="mt-2 space-y-4 pl-6">
-                {/* Sources pour particuliers */}
-                {vosdroitsSources.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center gap-2">
-                      <span className="text-lg">👤</span>
-                      Sources pour particuliers ({vosdroitsSources.length})
-                    </h4>
-                    <ul className="space-y-2">
-                      {vosdroitsSources.map((source, index) => (
-                        <li key={index} className="text-sm break-words">
-                          <a
-                            href={source.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline truncate block max-w-full"
-                            title={source.url}
-                          >
-                            {source.title || (source.url.length > 60 ? `${source.url.substring(0, 60)}...` : source.url)}
-                          </a>
-                          {source.excerpt && (
-                            <p className="text-gray-600 dark:text-gray-400 mt-1 break-words text-xs">{source.excerpt}</p>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
+              <div className="mt-3 space-y-3 pl-1">
+                {[...vosdroitsSources, ...entreprendreSources, ...otherSources, ...secondarySources].map((source, index) => (
+                  <div
+                    key={`${source.url}-${index}`}
+                    className="rounded-md border border-gray-200 dark:border-gray-500 bg-white/70 dark:bg-gray-800/70 p-3"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+                        {source.title || source.url}
+                      </p>
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200">
+                        {getSourceTypeLabel(source)}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">
+                      {getSourceHost(source.url)}
+                    </p>
+                    {source.excerpt && (
+                      <p className="text-xs text-gray-700 dark:text-gray-300 mt-2 line-clamp-3">
+                        {source.excerpt}
+                      </p>
+                    )}
+                    <a
+                      href={source.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex mt-2 text-xs font-medium text-blue-700 dark:text-blue-300 hover:underline"
+                    >
+                      Ouvrir la source
+                    </a>
                   </div>
-                )}
-
-                {/* Sources pour professionnels */}
-                {entreprendreSources.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center gap-2">
-                      <span className="text-lg">💼</span>
-                      Sources pour professionnels ({entreprendreSources.length})
-                    </h4>
-                    <ul className="space-y-2">
-                      {entreprendreSources.map((source, index) => (
-                        <li key={index} className="text-sm break-words">
-                          <a
-                            href={source.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline truncate block max-w-full"
-                            title={source.url}
-                          >
-                            {source.title || (source.url.length > 60 ? `${source.url.substring(0, 60)}...` : source.url)}
-                          </a>
-                          {source.excerpt && (
-                            <p className="text-gray-600 dark:text-gray-400 mt-1 break-words text-xs">{source.excerpt}</p>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {/* Autres sources */}
-                {otherSources.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center gap-2">
-                      <span className="text-lg">📄</span>
-                      Autres sources ({otherSources.length})
-                    </h4>
-                    <ul className="space-y-2">
-                      {otherSources.map((source, index) => (
-                        <li key={index} className="text-sm break-words">
-                          <a
-                            href={source.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline truncate block max-w-full"
-                            title={source.url}
-                          >
-                            {source.title || (source.url.length > 60 ? `${source.url.substring(0, 60)}...` : source.url)}
-                          </a>
-                          {source.excerpt && (
-                            <p className="text-gray-600 dark:text-gray-400 mt-1 break-words text-xs">{source.excerpt}</p>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {/* Sources complémentaires */}
-                {secondarySources.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-                      <span className="text-lg">🔗</span>
-                      Sources complémentaires ({secondarySources.length})
-                    </h4>
-                    <ul className="space-y-2">
-                      {secondarySources.map((source, index) => (
-                        <li key={index} className="text-sm break-words">
-                          <a
-                            href={source.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 hover:underline truncate block max-w-full"
-                            title={source.url}
-                          >
-                            {source.title || (source.url.length > 60 ? `${source.url.substring(0, 60)}...` : source.url)}
-                          </a>
-                          {source.excerpt && (
-                            <p className="text-gray-500 dark:text-gray-400 mt-1 break-words text-xs">{source.excerpt}</p>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                ))}
               </div>
             </details>
           </div>
         )}
+
+        {!isUser && !isStreaming && !isError && (
+          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
+            <p className="text-xs text-gray-700 dark:text-gray-300 mb-2">Cette réponse vous a-t-elle aidé ?</p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onFeedback && onFeedback(messageId, 1)}
+                aria-label="Réponse utile"
+                aria-pressed={feedback === 1}
+                className={`px-3 py-1.5 rounded-md text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                  feedback === 1
+                    ? 'bg-green-600 text-white'
+                    : 'bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-100 dark:hover:bg-gray-500'
+                }`}
+              >
+                👍 Utile
+              </button>
+              <button
+                type="button"
+                onClick={() => onFeedback && onFeedback(messageId, -1)}
+                aria-label="Réponse non utile"
+                aria-pressed={feedback === -1}
+                className={`px-3 py-1.5 rounded-md text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                  feedback === -1
+                    ? 'bg-red-600 text-white'
+                    : 'bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-100 dark:hover:bg-gray-500'
+                }`}
+              >
+                👎 À améliorer
+              </button>
+            </div>
+          </div>
+        )}
       </div>
-    </div>
+    </article>
   );
 };
 

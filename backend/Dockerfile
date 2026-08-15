@@ -11,18 +11,23 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency files
-COPY pyproject.toml ./
+# Copy dependency files (uv.lock pins exact versions so rebuilds are
+# reproducible instead of re-resolving loose ">=" constraints every time)
+COPY pyproject.toml uv.lock ./
 
 # Install uv for faster dependency management
 RUN pip install uv
 
-# Install dependencies
-RUN uv pip install --system --no-cache -e .
+# Install exactly the versions pinned in uv.lock, without re-resolving
+RUN uv export --frozen --no-hashes --no-emit-project -o requirements.lock.txt \
+    && uv pip install --system --no-cache -r requirements.lock.txt
 
 # Copy application code
 COPY app/ ./app/
 COPY scripts/ ./scripts/
+
+# Register the local package itself without touching already-installed deps
+RUN uv pip install --system --no-cache --no-deps -e .
 
 # Create logs directory
 RUN mkdir -p logs
@@ -34,5 +39,5 @@ EXPOSE 8000
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
-# Run the application using uvicorn directly for better production performance
-CMD ["python", "-m", "uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"] 
+# Run the application with Gunicorn + Uvicorn workers for resilience under load
+CMD ["gunicorn", "app.api.main:app", "-k", "uvicorn.workers.UvicornWorker", "-w", "2", "-b", "0.0.0.0:8000", "--timeout", "180"]
