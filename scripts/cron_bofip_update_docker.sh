@@ -20,19 +20,31 @@ if [ -f "$REPO/.env" ]; then
   set -a; source "$REPO/.env"; set +a
 fi
 
-flock -n "$LOCK_FILE" bash -c "
-  set -e
+run_bofip_job() {
+  set +e
+  local exit_code=0
+
   docker compose --profile maintenance build db_updater
   docker compose stop backend || true
-  for i in \$(seq 1 30); do
-    if [ -z \"\$(docker compose ps -q backend)\" ] || [ \"\$(docker inspect -f {{.State.Running}} \$(docker compose ps -q backend) 2>/dev/null || echo false)\" = \"false\" ]; then
+  for i in $(seq 1 30); do
+    if [ -z "$(docker compose ps -q backend)" ] || \
+       [ "$(docker inspect -f {{.State.Running}} $(docker compose ps -q backend) 2>/dev/null || echo false)" = "false" ]; then
       break
     fi
     sleep 1
   done
-  docker compose --profile maintenance run --rm db_updater \\
-    python -m sources.bofip.run_update --max-cost-usd ${BOFIP_MAX_COST_USD}
-  docker compose start backend || true
-"
 
-echo "==== BOFiP updater done: $(date +%F_%H-%M-%S) ===="
+  docker compose --profile maintenance run --rm db_updater \
+    python -m sources.bofip.run_update --max-cost-usd "${BOFIP_MAX_COST_USD}" || exit_code=$?
+
+  docker compose up -d backend || exit_code=$?
+  return "$exit_code"
+}
+
+if flock -n "$LOCK_FILE" bash -c "$(declare -f run_bofip_job); BOFIP_MAX_COST_USD=${BOFIP_MAX_COST_USD}; run_bofip_job"; then
+  echo "==== BOFiP updater done: $(date +%F_%H-%M-%S) ===="
+else
+  echo "==== BOFiP updater failed or lock held: $(date +%F_%H-%M-%S) ===="
+  docker compose up -d backend || true
+  exit 1
+fi
