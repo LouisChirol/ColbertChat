@@ -48,22 +48,29 @@ def main() -> int:
 
     ingestor = BofipIngestor(args.records_dir, max_documents=args.max_documents)
     files = ingestor._list_records()
-    estimate = ingestor.estimate_embed_cost(files)
-    logger.info(f"Embed estimate: {estimate}")
+    full_estimate = ingestor.estimate_embed_cost(files)
+    delta_estimate = ingestor.estimate_delta_embed_cost(files)
+    logger.info(f"Full corpus embed estimate: {full_estimate}")
+    logger.info(f"Delta embed estimate (new/updated only): {delta_estimate}")
 
     if args.estimate_only:
-        print(json.dumps(estimate, indent=2))
+        print(json.dumps({"full": full_estimate, "delta": delta_estimate}, indent=2))
         return 0
 
     if args.skip_embed:
         logger.info("Skipping embed as requested")
         return 0
 
-    if args.max_cost_usd is not None and estimate["estimated_cost_usd"] > args.max_cost_usd:
+    cost_estimate = delta_estimate
+    if args.max_cost_usd is not None and cost_estimate["estimated_cost_usd"] > args.max_cost_usd:
         logger.error(
-            f"Estimated ${estimate['estimated_cost_usd']} > max ${args.max_cost_usd}"
+            f"Delta estimated ${cost_estimate['estimated_cost_usd']} > max ${args.max_cost_usd}"
         )
         return 1
+
+    if cost_estimate["files_to_embed"] == 0:
+        logger.info("No new or updated BOFiP records — skipping embed")
+        return 0
 
     logger.info("Step 2: Ingesting into Chroma collection 'bofip'…")
     result = ingestor.run()

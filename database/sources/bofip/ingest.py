@@ -14,7 +14,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import backoff
 from dotenv import load_dotenv
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_mistralai import MistralAIEmbeddings
 from loguru import logger
@@ -234,6 +234,18 @@ class BofipIngestor:
             "estimated_chunks": est_chunks,
             "estimated_cost_usd": round(est_cost_usd, 4),
         }
+
+    def estimate_delta_embed_cost(self, files: Iterable[Path]) -> Dict[str, Any]:
+        """Estimate embed cost for new or changed records only (for cron guardrails)."""
+        to_embed = [
+            file_path
+            for file_path in files
+            if self._file_status(file_path).status in {"new", "updated"}
+        ]
+        estimate = self.estimate_embed_cost(to_embed)
+        estimate["files_to_embed"] = len(to_embed)
+        estimate["unchanged_files"] = len(files) - len(to_embed)
+        return estimate
 
     @backoff.on_exception(
         backoff.expo,

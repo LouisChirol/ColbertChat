@@ -1,6 +1,6 @@
 import { getLastUpdate } from '@/services/api';
 import { Dialog, Transition } from '@headlessui/react';
-import { DocumentArrowDownIcon, HeartIcon, TrashIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { DocumentArrowDownIcon, HeartIcon, HomeIcon, TrashIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { Github } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
 
@@ -82,6 +82,13 @@ const AppDrawer = ({
                   </div>
                   <div className="flex-1 overflow-y-auto">
                     <nav className="flex-1 flex flex-col gap-2 p-4">
+                      <a
+                        href="https://louischirol.fr"
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                      >
+                        <HomeIcon className="h-5 w-5 shrink-0" />
+                        <span>louischirol.fr</span>
+                      </a>
                       <button
                         onClick={onExportPDF}
                         disabled={isExporting || disableExport}

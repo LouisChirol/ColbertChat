@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "langchain>=0.1.0",
+    "langchain-text-splitters>=0.3.0",
     "langchain-mistralai>=0.0.1",
     "langchain-chroma>=0.0.1",
     "chromadb>=0.4.22",

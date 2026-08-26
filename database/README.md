@@ -67,7 +67,7 @@ The system processes official French government data from:
 - **API source**: [BOFiP publications en vigueur](https://data.economie.gouv.fr/explore/dataset/bofip-vigueur/) (~9k in-force documents)
 - **Format**: JSON per record (`contenu`, `identifiant_juridique`, `permalien`, `serie`)
 - **Chroma collection**: `bofip` (separate from `service_public`)
-- **Update frequency**: Weekly (re-download + content-hash delta)
+- **Update frequency**: Monthly on server (`cron_bofip_update_docker.sh`); content-hash delta skips unchanged records
 
 #### BOFiP pipeline
 
@@ -89,7 +89,8 @@ uv run python -m sources.bofip.ingest
 
 # Or combined:
 uv run python -m sources.bofip.run_update --skip-embed   # download only
-uv run python -m sources.bofip.run_update --max-documents 200 --max-cost-usd 0.50
+uv run python -m sources.bofip.run_update --estimate-only   # full + delta cost estimate
+uv run python -m sources.bofip.run_update --max-cost-usd 5.00  # cron uses delta estimate
 
 # Long-running full embed in tmux (resumable):
 ./scripts/run_bofip_ingest_tmux.sh

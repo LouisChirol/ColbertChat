@@ -18,7 +18,7 @@ interface ChatResponse {
   secondary_sources: Array<Source>;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:8000' : 'https://api.turgotchat.fr');
+const API_URL = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:8000' : '/api');
 
 export const sendMessage = async (message: string): Promise<ChatResponse> => {
   const sessionId = getSessionId();
@@ -173,25 +173,4 @@ export const submitFeedback = async (
   if (!response.ok) {
     throw new Error("Failed to store feedback");
   }
-};
-
-export const uploadDocument = async (
-  file: File,
-  consentConfirmed: boolean
-): Promise<{ filename: string; pages: number; message: string }> => {
-  const formData = new FormData();
-  formData.append("document", file);
-  formData.append("consent_confirmed", String(consentConfirmed));
-
-  const response = await fetch(`${API_URL}/document-upload`, {
-    method: "POST",
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || "Upload failed");
-  }
-
-  return response.json();
 };

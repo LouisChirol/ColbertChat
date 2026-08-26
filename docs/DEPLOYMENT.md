@@ -26,16 +26,44 @@ On every push to `master` (or manual `workflow_dispatch`):
 ## Server expectations
 
 - Docker and Docker Compose installed
+- External Docker network `web` (shared with Caddy in `~/lchirol/infra`)
 - Repository at `DEPLOY_PATH` with `docker-compose.yml` and `.env`
 - `.env` contains runtime secrets (`MISTRAL_API_KEY`, `REDIS_PASSWORD`, etc.)
-- Backend reachable at `http://127.0.0.1:8000/` after deploy
+- Caddy routes `turgot.louischirol.fr` → `turgot-frontend:3000`, `/api/*` → `turgot-backend:8000`
+- Frontend build uses `NEXT_PUBLIC_API_URL=/api` (same-origin, no `api.turgotchat.fr` subdomain)
+- `turgotchat.fr` redirects to `turgot.louischirol.fr`; `api.turgotchat.fr` kept as legacy API host
+- Nginx on the host is **not** the edge proxy (Caddy binds 80/443)
 
 ## Manual deploy (without CI)
 
 ```bash
 ./scripts/copy_to_server.sh
+
+# Sync vector DB (large; stop containers first)
+ssh -i ~/.ssh/id_ed25519_colbert ubuntu@145.239.71.174 'cd ~/turgot && docker compose down'
+rsync -avz --delete -e "ssh -i ~/.ssh/id_ed25519_colbert" \
+  database/chroma_db/ ubuntu@145.239.71.174:~/turgot/database/chroma_db/
+
 ssh -i ~/.ssh/id_ed25519_colbert ubuntu@145.239.71.174
 cd ~/turgot && ./scripts/deploy.sh
+```
+
+Verify: `https://turgot.louischirol.fr` and `https://turgot.louischirol.fr/api/`
+
+## Scheduled database updates (production server)
+
+| Job | Schedule | Script | What it does |
+|-----|----------|--------|----------------|
+| Service-Public | Mon 03:00 | `scripts/cron_update_docker.sh` | Download SP XML, delta embed `service_public`, retrieval eval |
+| BOFiP | 1st of month 04:00 | `scripts/cron_bofip_update_docker.sh` | Download BOFiP API, delta embed `bofip` (hash tracking) |
+
+BOFiP cron uses `BOFIP_MAX_COST_USD` (default `5.00`) against **delta** embed estimate only. Logs: `~/turgot/logs/bofip_update_*.log`.
+
+Manual BOFiP run on server:
+
+```bash
+cd ~/turgot
+BOFIP_MAX_COST_USD=5.00 ./scripts/cron_bofip_update_docker.sh
 ```
 
 ## Manual rollback
